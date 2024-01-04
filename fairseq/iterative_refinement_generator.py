@@ -245,7 +245,10 @@ class IterativeRefinementGenerator(object):
                 terminated.fill_(1)
 
             # collect finalized sentences
-            finalized_idxs = sent_idxs[terminated]
+            # hzj
+            # cpu -> gpu 按照原来fairseq里面改
+            finalized_idxs = sent_idxs[terminated.to(sent_idxs.device)]
+            #
             finalized_tokens = decoder_out.output_tokens[terminated]
             finalized_scores = decoder_out.output_scores[terminated]
             finalized_attn = (

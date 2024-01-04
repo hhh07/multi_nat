@@ -1,0 +1,31 @@
+export CUDA_VISIBLE_DEVICES=0
+python3 train.py  \
+    data-bin/distill_iwslt14.tokenized.de-en \
+    --save-dir model/vanilla/distill_iwslt14_checkpoints \
+    --ddp-backend=legacy_ddp \
+    --task translation_lev_bleu \
+    --criterion nat_loss \
+    --arch nonautoregressive_transformer \
+    --noise full_mask \
+    --share-all-embeddings \
+    --optimizer adam --adam-betas '(0.9,0.98)' \
+    --lr 0.0005 --lr-scheduler inverse_sqrt \
+    --stop-min-lr '1e-09' --warmup-updates 10000 \
+    --warmup-init-lr '1e-07' --label-smoothing 0.1 \
+    --dropout 0.3 --weight-decay 0.01 \
+    --decoder-learned-pos \
+    --encoder-learned-pos \
+    --pred-length-offset \
+    --length-loss-factor 0.1 \
+    --apply-bert-init \
+    --log-format 'simple' --log-interval 100 \
+    --fixed-validation-seed 7 \
+    --max-tokens 4096              \
+    --max-update 250000 \
+    --eval-bleu \
+    --eval-bleu-args '{"beam": 1, "max_len_a": 1.2, "max_len_b": 10}' \
+    --eval-bleu-detok moses \
+    --eval-bleu-remove-bpe \
+    --best-checkpoint-metric bleu --maximize-best-checkpoint-metric \
+    --keep-last-epochs 3 \
+    --keep-best-checkpoints 5  | tee -a log/vanilla/distill_nat_train.log
