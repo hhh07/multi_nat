@@ -59,15 +59,12 @@ class SequenceGenerator(nn.Module):
                 length (default: False)
         """
         super().__init__()
-        #hzj 不注释就会使用EnsembleModel
+        #hzj 使用EnsembleModel
         if isinstance(models, EnsembleModel):
             self.model = models
         else:
             self.model = EnsembleModel(models)
 
-        #hzj 取models中的第一个
-        #self.model = models
-        #self.model = models[0]
 
         self.tgt_dict = tgt_dict
         self.pad = tgt_dict.pad()
@@ -200,8 +197,6 @@ class SequenceGenerator(nn.Module):
             List[Dict[str, Dict[str, Optional[Tensor]]]],
             [
                 torch.jit.annotate(Dict[str, Dict[str, Optional[Tensor]]], {})
-                #hzj 没有model_size
-                #for i in range(1)
                 for i in range(self.model.models_size)
             ],
         )
@@ -258,10 +253,8 @@ class SequenceGenerator(nn.Module):
         new_order = torch.arange(bsz).view(-1, 1).repeat(1, beam_size).view(-1)
         new_order = new_order.to(src_tokens.device).long()
 
-        #hzj model没有reorder_encoder_out 应该是encoder有
+        #hzj model中重写reorder_encoder_out
         encoder_outs = self.model.reorder_encoder_out(encoder_outs, new_order)
-        #hzj 不要reorder
-        #encoder_outs = self.model.encoder.reorder_encoder_out(encoder_outs, new_order)
 
         # ensure encoder_outs is a List.
         assert encoder_outs is not None
@@ -322,7 +315,6 @@ class SequenceGenerator(nn.Module):
         for step in range(max_len + 1):  # one extra step for EOS marker
             # reorder decoder internal states based on the prev choice of beams
 
-            #hzj 使用beam=1 不需要reorder
             if reorder_state is not None:
                 if batch_idxs is not None:
                     # update beam indices to take into account removed sentences
@@ -770,11 +762,12 @@ class EnsembleModel(nn.Module):
     def max_decoder_positions(self):
         return min([m.max_decoder_positions() for m in self.models])
 
-#hzj
     @torch.jit.export
     def forward_encoder(self, net_input: Dict[str, Tensor],upsample_scale, src_dict):
         if not self.has_encoder():
             return None
+        #hzj
+        # return [model.encoder.forward_torchscript(net_input) for model in self.models]
         return [model.forward_encoder(net_input,upsample_scale, src_dict) for model in self.models]
 
     @torch.jit.export
@@ -794,12 +787,14 @@ class EnsembleModel(nn.Module):
             # decode each model
             if self.has_incremental_states():
                 #hzj
+                #decoder_out = model.decoder.forward(
                 decoder_out = model.forward_decoder(
                     tokens,
                     encoder_out=encoder_out,
                     incremental_state=incremental_states[i],
                 )
             else:
+                #decoder_out = model.decoder.forward(tokens, encoder_out=encoder_out)
                 decoder_out = model.forward_decoder(tokens, encoder_out=encoder_out)
 
             attn: Optional[Tensor] = None
