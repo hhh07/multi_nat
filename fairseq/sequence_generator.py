@@ -59,10 +59,16 @@ class SequenceGenerator(nn.Module):
                 length (default: False)
         """
         super().__init__()
+        #hzj 不注释就会使用EnsembleModel
         if isinstance(models, EnsembleModel):
             self.model = models
         else:
             self.model = EnsembleModel(models)
+
+        #hzj 取models中的第一个
+        #self.model = models
+        #self.model = models[0]
+
         self.tgt_dict = tgt_dict
         self.pad = tgt_dict.pad()
         self.unk = tgt_dict.unk()
@@ -181,17 +187,21 @@ class SequenceGenerator(nn.Module):
         """
         return self._generate(sample, **kwargs)
 
+    #hzj 加了2个参数
     def _generate(
         self,
         sample: Dict[str, Dict[str, Tensor]],
         prefix_tokens: Optional[Tensor] = None,
         constraints: Optional[Tensor] = None,
         bos_token: Optional[int] = None,
+        **kwargs
     ):
         incremental_states = torch.jit.annotate(
             List[Dict[str, Dict[str, Optional[Tensor]]]],
             [
                 torch.jit.annotate(Dict[str, Dict[str, Optional[Tensor]]], {})
+                #hzj 没有model_size
+                #for i in range(1)
                 for i in range(self.model.models_size)
             ],
         )
@@ -239,12 +249,20 @@ class SequenceGenerator(nn.Module):
             self.min_len <= max_len
         ), "min_len cannot be larger than max_len, please adjust these!"
         # compute the encoder output for each beam
-        encoder_outs = self.model.forward_encoder(net_input)
+        #hzj 加2参数
+        upsample_scale = kwargs.get("upsample_scale")
+        src_dict = kwargs.get("src_dict")
+        encoder_outs = self.model.forward_encoder(net_input,upsample_scale,src_dict)
 
         # placeholder of indices for bsz * beam_size to hold tokens and accumulative scores
         new_order = torch.arange(bsz).view(-1, 1).repeat(1, beam_size).view(-1)
         new_order = new_order.to(src_tokens.device).long()
+
+        #hzj model没有reorder_encoder_out 应该是encoder有
         encoder_outs = self.model.reorder_encoder_out(encoder_outs, new_order)
+        #hzj 不要reorder
+        #encoder_outs = self.model.encoder.reorder_encoder_out(encoder_outs, new_order)
+
         # ensure encoder_outs is a List.
         assert encoder_outs is not None
 
@@ -303,6 +321,8 @@ class SequenceGenerator(nn.Module):
 
         for step in range(max_len + 1):  # one extra step for EOS marker
             # reorder decoder internal states based on the prev choice of beams
+
+            #hzj 使用beam=1 不需要reorder
             if reorder_state is not None:
                 if batch_idxs is not None:
                     # update beam indices to take into account removed sentences
@@ -750,11 +770,12 @@ class EnsembleModel(nn.Module):
     def max_decoder_positions(self):
         return min([m.max_decoder_positions() for m in self.models])
 
+#hzj
     @torch.jit.export
-    def forward_encoder(self, net_input: Dict[str, Tensor]):
+    def forward_encoder(self, net_input: Dict[str, Tensor],upsample_scale, src_dict):
         if not self.has_encoder():
             return None
-        return [model.encoder.forward_torchscript(net_input) for model in self.models]
+        return [model.forward_encoder(net_input,upsample_scale, src_dict) for model in self.models]
 
     @torch.jit.export
     def forward_decoder(
@@ -772,13 +793,14 @@ class EnsembleModel(nn.Module):
                 encoder_out = encoder_outs[i]
             # decode each model
             if self.has_incremental_states():
-                decoder_out = model.decoder.forward(
+                #hzj
+                decoder_out = model.forward_decoder(
                     tokens,
                     encoder_out=encoder_out,
                     incremental_state=incremental_states[i],
                 )
             else:
-                decoder_out = model.decoder.forward(tokens, encoder_out=encoder_out)
+                decoder_out = model.forward_decoder(tokens, encoder_out=encoder_out)
 
             attn: Optional[Tensor] = None
             decoder_len = len(decoder_out)
@@ -841,7 +863,8 @@ class EnsembleModel(nn.Module):
         for i, model in enumerate(self.models):
             assert encoder_outs is not None
             new_outs.append(
-                model.encoder.reorder_encoder_out(encoder_outs[i], new_order)
+                #hzj
+                model.reorder_encoder_out(encoder_outs[i], new_order)
             )
         return new_outs
 

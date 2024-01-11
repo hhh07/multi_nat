@@ -10,3 +10,4 @@ from .nat_ctc_task import *
 #from .translation_r2l_1 import *
 #from .wxy_warmup_task import *
 #from .mt_nat_mix_raw_task import *
+from .ar_ctc_task import *

@@ -13,6 +13,10 @@ from dataclasses import dataclass, field
 from fairseq.tasks import register_task
 from fairseq import utils
 from multitasknat.tasks.nat_ctc_task import NATCTCConfig, NATCTC_Task
+from fairseq.sequence_generator import (
+            SequenceGenerator,
+            SequenceGeneratorWithAlignment,
+        )
 
 EVAL_BLEU_ORDER = 4
 logger = logging.getLogger(__name__)
@@ -72,8 +76,8 @@ class MTCTCConfig(NATCTCConfig):
     )
 
 
-@register_task('mt_ctc_task', dataclass=MTCTCConfig)
-class MT_CTC_Task(NATCTC_Task):
+@register_task('ar_ctc_task', dataclass=MTCTCConfig)
+class AR_CTC_Task(NATCTC_Task):
     def train_step(self,
                    sample,
                    model,
@@ -90,10 +94,12 @@ class MT_CTC_Task(NATCTC_Task):
         if getattr(self.cfg, "if_deepcopy_at_sample", False):
             at_sample = deepcopy(sample)
             at_sample = drop_sentences_(at_sample, rate=0.0)
+        #nat和at都是sample 只nat_sample['prev_target']修改了一下
         nat_sample = sample
         src_tokens = sample["net_input"]["src_tokens"].clone()
         upsample_src_tokens = normal(src_tokens, self.cfg.upsample_scale, self.src_dict)
         nat_sample['prev_target'] = upsample_src_tokens
+        #看看 nat_sample 和at_sample
         loss, sample_size, logging_output = criterion(model, at_sample, nat_sample, None, glat=glat, **kwargs)
         if ignore_grad:
             loss *= 0
@@ -165,3 +171,34 @@ class MT_CTC_Task(NATCTC_Task):
             return sacrebleu.corpus_bleu(hyps, [refs], tokenize="none")
         else:
             return sacrebleu.corpus_bleu(hyps, [refs])
+
+#inference用到
+    def build_generator(self, models, args, **unused):
+        # add models input to match the API for SequenceGenerator
+        from fairseq.tasks import FairseqTask
+        from fairseq import metrics, search, tokenizer, utils
+        return FairseqTask.build_generator(self, models, args, **unused)
+        # return SequenceGenerator(
+        #     models,
+        #     self.target_dictionary,
+        #     beam_size=getattr(args, "beam", 5),
+        #     max_len_a=getattr(args, "max_len_a", 0),
+        #     max_len_b=getattr(args, "max_len_b", 200),
+        #     min_len=getattr(args, "min_len", 1),
+        #     normalize_scores=(not getattr(args, "unnormalized", False)),
+        #     len_penalty=getattr(args, "lenpen", 1),
+        #     unk_penalty=getattr(args, "unkpen", 0),
+        #     temperature=getattr(args, "temperature", 1.0),
+        #     match_source_len=getattr(args, "match_source_len", False),
+        #     no_repeat_ngram_size=getattr(args, "no_repeat_ngram_size", 0),
+        #     search_strategy=search.BeamSearch(self.target_dictionary),
+        # )
+
+    def inference_step(
+        self, generator, models, sample, prefix_tokens=None, constraints=None
+    ):
+        with torch.no_grad():
+            return generator.generate(
+                #加2参数
+                models, sample, prefix_tokens=prefix_tokens, constraints=constraints, upsample_scale=self.cfg.upsample_scale, src_dict=self.src_dict
+            )
