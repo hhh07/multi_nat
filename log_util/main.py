@@ -52,9 +52,10 @@ def parse_single_log(log_dir_path: str):
     plt.savefig(png_save_dir)
 
 
-def parse_multi_log(log_dir_path_list: List[str]):
+def parse_multi_log(log_dir_path_list_str:str):
     # 生成日志实体
     fairser_log_entity_dict = dict()
+    log_dir_path_list = log_dir_path_list_str.split(',')
     for path in log_dir_path_list:
         fairser_log_entity_dict[path] = FairseqLogEntity.get_instance_by_folder(path)
 
@@ -67,6 +68,8 @@ def parse_multi_log(log_dir_path_list: List[str]):
         x_epoch = sorted(fairser_log_entity.valid_info_dict.keys())
         y_valid_bleu = [fairser_log_entity.valid_info_dict[epoch].bleu for epoch in x_epoch]
         plt.plot(x_epoch, y_valid_bleu, label=f"Valid Bleu: {path.split('/')[-1]}")
+        plt.ylim(30, 38)
+        #plt.xlim(0, 500)
 
     plt.xlabel("Epochs")
     plt.ylabel("Bleu Score")

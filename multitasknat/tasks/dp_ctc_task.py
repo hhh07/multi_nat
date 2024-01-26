@@ -16,6 +16,7 @@ from multitasknat.tasks.nat_ctc_task import NATCTCConfig, NATCTC_Task
 
 #hzj
 import itertools
+from typing import Optional
 from fairseq.data import (
     AppendTokenDataset,
     ConcatDataset,
@@ -34,11 +35,18 @@ logger = logging.getLogger(__name__)
 #hzj
 def load_langpair_dataset(
     data_path,
+    tags_path,
     split,
     src,
     src_dict,
     tgt,
     tgt_dict,
+    tgt_pos,
+    tgt_pos_dict,
+    tgt_dphead,
+    tgt_dphead_dict,
+    tgt_dplable,
+    tgt_dplable_dict,                                
     combine,
     dataset_impl,
     upsample_primary,
@@ -60,8 +68,9 @@ def load_langpair_dataset(
 
     src_datasets = []
     tgt_datasets = []
-    pos_datasets = []
-    dphead_datasets = []
+    tgt_pos_datasets = []
+    tgt_dphead_datasets = []
+    tgt_dplable_datasets = []
 
 
     for k in itertools.count():
@@ -107,12 +116,59 @@ def load_langpair_dataset(
 
         if not combine:
             break
+    #上面都一样
+    #hzj
+    for k in itertools.count():
+        #hzj
+        #只有trian数据集需要dp信息，但是还是读取一下valid的
+        
+        split_k = split + (str(k) if k > 0 else "")
 
-    assert len(src_datasets) == len(tgt_datasets) or len(tgt_datasets) == 0
+        # infer langcode
+        if split_exists(split_k, tgt_dphead, None, tgt_dphead, tags_path):
+            prefix_pos = os.path.join(tags_path, "{}.{}-{}.".format(split_k, tgt_pos, None))
+            prefix_dphead = os.path.join(tags_path, "{}.{}-{}.".format(split_k, tgt_dphead, None))
+            prefix_dplable = os.path.join(tags_path, "{}.{}-{}.".format(split_k, tgt_dplable, None))
+        else:
+            if k > 0:
+                break
+            else:
+                raise FileNotFoundError(
+                    "Dataset not found: {} ({})".format(split, data_path)
+                )
+
+        # 这个地方的prefix + 什么？？
+
+        tgt_pos_dataset = data_utils.load_indexed_dataset(
+            prefix_pos + tgt_pos, tgt_pos_dict, dataset_impl
+        )
+        if tgt_pos_dataset is not None:
+            tgt_pos_datasets.append(tgt_pos_dataset)
+
+        tgt_dphead_dataset = data_utils.load_indexed_dataset(
+            prefix_dphead + tgt_dphead, tgt_dphead_dict, dataset_impl
+        )
+        if tgt_dphead_dataset is not None:
+            tgt_dphead_datasets.append(tgt_dphead_dataset)
+
+        tgt_dplable_dataset = data_utils.load_indexed_dataset(
+            prefix_dplable + tgt_dplable, tgt_dplable_dict, dataset_impl
+        )
+        if tgt_dplable_dataset is not None:
+            tgt_dplable_datasets.append(tgt_dplable_dataset)
+
+        if not combine:
+            break
+
+
+    assert len(src_datasets) == len(tgt_datasets) == len(tgt_pos_datasets) == len(tgt_dphead_datasets) == len(tgt_dplable_datasets) or len(tgt_datasets) == 0
 
     if len(src_datasets) == 1:
         src_dataset = src_datasets[0]
         tgt_dataset = tgt_datasets[0] if len(tgt_datasets) > 0 else None
+        tgt_pos_dataset = tgt_pos_datasets[0]
+        tgt_dphead_dataset = tgt_dphead_datasets[0]
+        tgt_dplable_dataset = tgt_dplable_datasets[0]
     else:
         sample_ratios = [1] * len(src_datasets)
         sample_ratios[0] = upsample_primary
@@ -121,6 +177,9 @@ def load_langpair_dataset(
             tgt_dataset = ConcatDataset(tgt_datasets, sample_ratios)
         else:
             tgt_dataset = None
+        tgt_pos_dataset = ConcatDataset(tgt_pos_datasets, sample_ratios)
+        tgt_dphead_dataset = ConcatDataset(tgt_dphead_datasets, sample_ratios)
+        tgt_dplable_dataset = ConcatDataset(tgt_dplable_datasets, sample_ratios)
 
     if prepend_bos:
         assert hasattr(src_dict, "bos_index") and hasattr(tgt_dict, "bos_index")
@@ -147,14 +206,16 @@ def load_langpair_dataset(
                 align_path, None, dataset_impl
             )
 
+        # tgt_pos_dataset = tgt_pos_datasets[0]
+        # tgt_dphead_dataset = tgt_dphead_datasets[0]
+        # tgt_dplable_dataset = tgt_dplable_dataset[0]
     tgt_dataset_sizes = tgt_dataset.sizes if tgt_dataset is not None else None
     return LanguagePairDataset(
-        src_dataset,
-        src_dataset.sizes,
-        src_dict,
-        tgt_dataset,
-        tgt_dataset_sizes,
-        tgt_dict,
+        src_dataset,src_dataset.sizes,src_dict,
+        tgt_dataset,tgt_dataset_sizes,tgt_dict,
+        tgt_pos_dataset,tgt_pos_dataset.sizes,tgt_pos_dict,
+        tgt_dphead_dataset,tgt_dphead_dataset.sizes,tgt_dphead_dict,
+        tgt_dplable_dataset,tgt_dplable_dataset.sizes,tgt_dplable_dict,
         left_pad_source=left_pad_source,
         left_pad_target=left_pad_target,
         align_dataset=align_dataset,
@@ -202,7 +263,7 @@ def normal(src_tokens, scale, src_dict):
 
 
 @dataclass
-class MTCTCConfig(NATCTCConfig):
+class DPCTCConfig(NATCTCConfig):
     if_deepcopy_at_sample: bool = field(
         default=False, metadata={"help": "if set, shuffle at sample."}
     )
@@ -218,12 +279,50 @@ class MTCTCConfig(NATCTCConfig):
     glat: bool = field(
         default=False,
     )
+    tgt_pos: Optional[str] = field(
+        default="pos",
+        metadata={
+            "help": "tgt_pos",
+        },
+    )
+    tgt_dphead: Optional[str] = field(
+        default="dphead",
+        metadata={
+            "help": "tgt_dphead",
+        },
+    )
+    tgt_dplable: Optional[str] = field(
+        default="dplable",
+        metadata={
+            "help": "tgt_dplable",
+        },
+    )
+    tgt_text: Optional[str] = field(
+        default="text",
+        metadata={
+            "help": "tgt_text",
+        },
+    )
+    tags_path: Optional[str] = field(
+        default=None,
+        metadata={
+            "help": "tags_path",
+        },
+    )
 
 
-@register_task('dp_ctc_task', dataclass=MTCTCConfig)
-class MT_CTC_Task(NATCTC_Task):
+
+@register_task('dp_ctc_task', dataclass=DPCTCConfig)
+class DP_CTC_Task(NATCTC_Task):
 
     #hzj
+    def __init__(self, cfg, src_dict, tgt_dict, tgt_pos_dict, tgt_dphead_dict, tgt_dplable_dict):
+        super().__init__(cfg, src_dict, tgt_dict)
+        self.tgt_pos_dict = tgt_pos_dict
+        self.tgt_dphead_dict = tgt_dphead_dict
+        self.tgt_dplable_dict = tgt_dplable_dict
+        
+
     def load_dataset(self, split, epoch=1, combine=False, **kwargs):
         """Load a given dataset split.
 
@@ -236,14 +335,24 @@ class MT_CTC_Task(NATCTC_Task):
 
         # infer langcode
         src, tgt = self.cfg.source_lang, self.cfg.target_lang
+        #text = self.cfg.tgt_text
+        pos = self.cfg.tgt_pos
+        dphead = self.cfg.tgt_dphead
+        dplable = self.cfg.tgt_dplable
+        tags_path = self.cfg.tags_path
+
 
         self.datasets[split] = load_langpair_dataset(
             data_path,
+            tags_path,
             split,
             src,
             self.src_dict,
             tgt,
             self.tgt_dict,
+            pos, self.tgt_pos_dict,
+            dphead, self.tgt_dphead_dict,
+            dplable, self.tgt_dplable_dict,
             combine=combine,
             dataset_impl=self.cfg.dataset_impl,
             upsample_primary=self.cfg.upsample_primary,
@@ -253,6 +362,48 @@ class MT_CTC_Task(NATCTC_Task):
             max_target_positions=self.cfg.max_target_positions,
             prepend_bos=True,
         )
+
+    @classmethod
+    def setup_task(cls, args, **kwargs):
+        """Setup the task (e.g., load dictionaries).
+
+        Args:
+            args (argparse.Namespace): parsed command-line arguments
+        """
+        model_args = kwargs['model']
+        args.left_pad_source = utils.eval_bool(args.left_pad_source)
+        args.left_pad_target = utils.eval_bool(args.left_pad_target)
+
+        paths = utils.split_paths(args.data)
+        assert len(paths) > 0
+        # find language pair automatically
+        if args.source_lang is None or args.target_lang is None:
+            args.source_lang, args.target_lang = data_utils.infer_language_pair(paths[0])
+        if args.source_lang is None or args.target_lang is None:
+            raise Exception('Could not infer language pair, please provide it explicitly')
+
+        # load dictionaries
+        src_dict = cls.load_dictionary(args, model_args, os.path.join(paths[0], 'dict.{}.txt'.format(args.source_lang)))
+        tgt_dict = cls.load_dictionary(args, model_args, os.path.join(paths[0], 'dict.{}.txt'.format(args.target_lang)))
+        assert src_dict.pad() == tgt_dict.pad()
+        assert src_dict.eos() == tgt_dict.eos()
+        assert src_dict.unk() == tgt_dict.unk()
+        logger.info('[{}] dictionary: {} types'.format(args.source_lang, len(src_dict)))
+        logger.info('[{}] dictionary: {} types'.format(args.target_lang, len(tgt_dict)))
+
+        #hzj add dp
+        if args.tags_path is None:
+            raise Exception('Path(s) to tags data directorie(s) missing')
+
+        tgt_pos_dict = cls.load_dictionary(args, model_args, os.path.join(args.tags_path, 'dict.{}.txt'.format(args.tgt_pos)))
+        tgt_dphead_dict = cls.load_dictionary(args, model_args, os.path.join(args.tags_path, 'dict.{}.txt'.format(args.tgt_dphead)))
+        tgt_dplable_dict = cls.load_dictionary(args, model_args, os.path.join(args.tags_path, 'dict.{}.txt'.format(args.tgt_dplable)))
+        print('| [{}] tgt_pos dictionary: {} types'.format(args.tgt_pos, len(tgt_pos_dict)))
+        print('| [{}] tgt_dphead dictionary: {} types'.format(args.tgt_dphead, len(tgt_dphead_dict)))
+        print('| [{}] tgt_dplable dictionary: {} types'.format(args.tgt_dplable, len(tgt_dplable_dict)))
+
+        return cls(args, src_dict, tgt_dict, tgt_pos_dict, tgt_dphead_dict, tgt_dplable_dict)
+
 
     def train_step(self,
                    sample,
@@ -345,3 +496,15 @@ class MT_CTC_Task(NATCTC_Task):
             return sacrebleu.corpus_bleu(hyps, [refs], tokenize="none")
         else:
             return sacrebleu.corpus_bleu(hyps, [refs])
+
+    @property
+    def tgt_pos_dictionary(self):
+        return self.tgt_pos_dict
+
+    @property
+    def tgt_dphead_dictionary(self):
+        return self.tgt_dphead_dict
+
+    @property
+    def tgt_dplable_dictionary(self):
+        return self.tgt_dplable_dict

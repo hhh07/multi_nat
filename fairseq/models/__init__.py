@@ -93,7 +93,7 @@ def build_model(cfg: FairseqDataclass, task):
         + " Requested model type: "
         + model_type
     )
-
+    
     return model.build_model(cfg, task)
 
 

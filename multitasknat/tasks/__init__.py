@@ -11,3 +11,4 @@ from .nat_ctc_task import *
 #from .wxy_warmup_task import *
 #from .mt_nat_mix_raw_task import *
 from .ar_ctc_task import *
+from .dp_ctc_task import *

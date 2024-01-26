@@ -79,14 +79,7 @@ def collate(
     src_tokens = src_tokens.index_select(0, sort_order)
 
     prev_output_tokens = None
-    prev_tgt_pos_tokens = None
-    prev_tgt_dphead_tokens = None
-    prev_tgt_dplable_tokens = None
     target = None
-    tgt_pos = None
-    tgt_dphead = None
-    tgt_dplable = None
-
     if samples[0].get("target", None) is not None:
         target = merge(
             "target",
@@ -116,79 +109,6 @@ def collate(
             )
     else:
         ntokens = src_lengths.sum().item()
-    
-    if samples[0].get("tgt_pos", None) is not None:
-        #长度和tgt一样，用一样的pad_to_length
-        tgt_pos = merge(
-            "tgt_pos",
-            left_pad=left_pad_target,
-            pad_to_length=pad_to_length["target"]
-            if pad_to_length is not None
-            else None,
-        )
-        tgt_pos = tgt_pos.index_select(0, sort_order)
-
-        if samples[0].get("prev_tgt_pos_tokens", None) is not None:
-            prev_tgt_pos_tokens = merge("prev_tgt_pos_tokens", left_pad=left_pad_target)
-        elif input_feeding:
-            # we create a shifted version of targets for feeding the
-            # previous output token(s) into the next decoder step
-            prev_tgt_pos_tokens = merge(
-                "tgt_pos",
-                left_pad=left_pad_target,
-                move_eos_to_beginning=True,
-                pad_to_length=pad_to_length["target"]
-                if pad_to_length is not None
-                else None,
-            )
-    if samples[0].get("tgt_dphead", None) is not None:
-        #长度和tgt一样，用一样的pad_to_length
-        tgt_dphead = merge(
-            "tgt_dphead",
-            left_pad=left_pad_target,
-            pad_to_length=pad_to_length["target"]
-            if pad_to_length is not None
-            else None,
-        )
-        tgt_dphead = tgt_dphead.index_select(0, sort_order)
-
-        if samples[0].get("prev_tgt_dphead_tokens", None) is not None:
-            prev_tgt_dphead_tokens = merge("prev_tgt_dphead_tokens", left_pad=left_pad_target)
-        elif input_feeding:
-            # we create a shifted version of targets for feeding the
-            # previous output token(s) into the next decoder step
-            prev_tgt_dphead_tokens = merge(
-                "tgt_dphead",
-                left_pad=left_pad_target,
-                move_eos_to_beginning=True,
-                pad_to_length=pad_to_length["target"]
-                if pad_to_length is not None
-                else None,
-            )
-    if samples[0].get("tgt_dplable", None) is not None:
-        #长度和tgt一样，用一样的pad_to_length
-        tgt_dplable = merge(
-            "tgt_dplable",
-            left_pad=left_pad_target,
-            pad_to_length=pad_to_length["target"]
-            if pad_to_length is not None
-            else None,
-        )
-        tgt_dplable = tgt_dplable.index_select(0, sort_order)
-
-        if samples[0].get("prev_tgt_dplable_tokens", None) is not None:
-            prev_tgt_dplable_tokens = merge("prev_tgt_dplable_tokens", left_pad=left_pad_target)
-        elif input_feeding:
-            # we create a shifted version of targets for feeding the
-            # previous output token(s) into the next decoder step
-            prev_tgt_dplable_tokens = merge(
-                "tgt_dplable",
-                left_pad=left_pad_target,
-                move_eos_to_beginning=True,
-                pad_to_length=pad_to_length["target"]
-                if pad_to_length is not None
-                else None,
-            )
 
     batch = {
         "id": id,
@@ -196,25 +116,9 @@ def collate(
         "ntokens": ntokens,
         "net_input": {"src_tokens": src_tokens, "src_lengths": src_lengths,},
         "target": target,
-        "tgt_pos": tgt_pos,
-        "tgt_dphead": tgt_dphead,
-        "tgt_dplable": tgt_dplable, 
-
     }
     if prev_output_tokens is not None:
         batch["net_input"]["prev_output_tokens"] = prev_output_tokens.index_select(
-            0, sort_order
-        )
-    if prev_tgt_pos_tokens is not None:
-        batch["net_input"]["prev_tgt_pos_tokens"] = prev_tgt_pos_tokens.index_select(
-            0, sort_order
-        )
-    if prev_tgt_dphead_tokens is not None:
-        batch["net_input"]["prev_tgt_dphead_tokens"] = prev_tgt_dphead_tokens.index_select(
-            0, sort_order
-        )
-    if prev_tgt_dplable_tokens is not None:
-        batch["net_input"]["prev_tgt_dplable_tokens"] = prev_tgt_dplable_tokens.index_select(
             0, sort_order
         )
 
@@ -299,11 +203,12 @@ class LanguagePairDataset(FairseqDataset):
 
     def __init__(
         self,
-        src,src_sizes,src_dict,
-        tgt=None,tgt_sizes=None,tgt_dict=None,
-        tgt_pos=None,tgt_pos_sizes=None,tgt_pos_dict=None, #hzj
-        tgt_dphead=None,tgt_dphead_sizes=None,tgt_dphead_dict=None,
-        tgt_dplable=None,tgt_dplable_sizes=None,tgt_dplable_dict=None,
+        src,
+        src_sizes,
+        src_dict,
+        tgt=None,
+        tgt_sizes=None,
+        tgt_dict=None,
         left_pad_source=True,
         left_pad_target=False,
         shuffle=True,
@@ -320,7 +225,6 @@ class LanguagePairDataset(FairseqDataset):
         pad_to_multiple=1,
     ):
         if tgt_dict is not None:
-            #其他要加吗？
             assert src_dict.pad() == tgt_dict.pad()
             assert src_dict.eos() == tgt_dict.eos()
             assert src_dict.unk() == tgt_dict.unk()
@@ -330,17 +234,8 @@ class LanguagePairDataset(FairseqDataset):
             ), "Source and target must contain the same number of examples"
         self.src = src
         self.tgt = tgt
-        #hzj
-        self.tgt_pos = tgt_pos
-        self.tgt_dphead = tgt_dphead
-        self.tgt_dplable = tgt_dplable
         self.src_sizes = np.array(src_sizes)
         self.tgt_sizes = np.array(tgt_sizes) if tgt_sizes is not None else None
-        #hzj
-        self.tgt_pos_sizes = np.array(tgt_pos_sizes)
-        self.tgt_dphead_sizes = np.array(tgt_dphead_sizes)
-        self.tgt_dplable_sizes = np.array(tgt_dplable_sizes)
-
         self.sizes = (
             np.vstack((self.src_sizes, self.tgt_sizes)).T
             if self.tgt_sizes is not None
@@ -348,11 +243,6 @@ class LanguagePairDataset(FairseqDataset):
         )
         self.src_dict = src_dict
         self.tgt_dict = tgt_dict
-        #hzj
-        self.tgt_pos_dict = tgt_pos_dict
-        self.tgt_dphead_dict = tgt_dphead_dict
-        self.tgt_dplable_dict = tgt_dplable_dict
-
         self.left_pad_source = left_pad_source
         self.left_pad_target = left_pad_target
         self.shuffle = shuffle
@@ -411,10 +301,6 @@ class LanguagePairDataset(FairseqDataset):
     def __getitem__(self, index):
         tgt_item = self.tgt[index] if self.tgt is not None else None
         src_item = self.src[index]
-        #hzj
-        tgt_pos_item = self.tgt_pos[index] if self.tgt_pos is not None else None
-        tgt_dphead_item = self.tgt_dphead[index] if self.tgt_dphead is not None else None
-        tgt_dplable_item = self.tgt_dplable[index] if self.tgt_dplable is not None else None
         # Append EOS to end of tgt sentence if it does not have an EOS and remove
         # EOS from end of src sentence if it exists. This is useful when we use
         # use existing datasets for opposite directions i.e., when we want to
@@ -437,18 +323,11 @@ class LanguagePairDataset(FairseqDataset):
             eos = self.src_dict.eos()
             if self.src[index][-1] == eos:
                 src_item = self.src[index][:-1]
-                tgt_pos_item = self.tgt_pos[index][:-1]
-                tgt_dphead_item = self.tgt_dphead[index][:-1]
-                tgt_dplable_item = self.tgt_dplable[index][:-1]
 
-        #hzj
         example = {
             "id": index,
             "source": src_item,
             "target": tgt_item,
-            "tgt_pos": tgt_pos_item,
-            "tgt_dphead": tgt_dphead_item,
-            "tgt_dplable": tgt_dplable_item,
         }
         if self.align_dataset is not None:
             example["alignment"] = self.align_dataset[index]
@@ -540,9 +419,6 @@ class LanguagePairDataset(FairseqDataset):
         return (
             self.src_sizes[index],
             self.tgt_sizes[index] if self.tgt_sizes is not None else 0,
-            self.tgt_pos_sizes[index] if self.tgt_pos_sizes is not None else 0,
-            self.tgt_dphead_sizes[index] if self.tgt_dphead_sizes is not None else 0,
-            self.tgt_dplable_sizes[index] if self.tgt_dplable_sizes is not None else 0
         )
 
     def ordered_indices(self):
@@ -568,12 +444,6 @@ class LanguagePairDataset(FairseqDataset):
     def supports_prefetch(self):
         return getattr(self.src, "supports_prefetch", False) and (
             getattr(self.tgt, "supports_prefetch", False) or self.tgt is None
-        ) and (
-            getattr(self.tgt_pos, "supports_prefetch", False) or self.tgt_pos is None
-        ) and (
-            getattr(self.tgt_dphead, "supports_prefetch", False) or self.tgt_dphead is None
-        ) and (
-            getattr(self.tgt_dplable, "supports_prefetch", False) or self.tgt_dplable is None
         )
 
     def prefetch(self, indices):
@@ -582,12 +452,6 @@ class LanguagePairDataset(FairseqDataset):
             self.tgt.prefetch(indices)
         if self.align_dataset is not None:
             self.align_dataset.prefetch(indices)
-        if self.tgt_pos is not None:
-            self.tgt_pos.prefetch(indices)
-        if self.tgt_dphead is not None:
-            self.tgt_dphead.prefetch(indices)
-        if self.tgt_dplable is not None:
-            self.tgt_dplable.prefetch(indices)
 
     def filter_indices_by_size(self, indices, max_sizes):
         """Filter a list of sample indices. Remove those that are longer
