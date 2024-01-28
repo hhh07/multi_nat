@@ -235,11 +235,11 @@ class t1dp_ctc_loss(LabelSmoothedDualImitationCriterion):
             num_at_loss += 1
         num_at_loss = 1
         for dphead_loss in dphead_loss_list:
-            logging_output["pos-" + str(num_at_loss) + "-loss"] = dphead_loss.data
+            logging_output["dphead-" + str(num_at_loss) + "-loss"] = dphead_loss.data
             num_at_loss += 1
         num_at_loss = 1
         for dplable_loss in dplable_loss_list:
-            logging_output["pos-" + str(num_at_loss) + "-loss"] = dplable_loss.data
+            logging_output["dplable-" + str(num_at_loss) + "-loss"] = dplable_loss.data
             num_at_loss += 1
         
         return loss, sample_size, logging_output
