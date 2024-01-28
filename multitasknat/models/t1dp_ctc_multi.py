@@ -38,16 +38,27 @@ class ShallowTranformerDecoder(TransformerDecoder):
 
 class dp_decoder(NAT_ctc_decoder):
     def __init__(self, args, dictionary, embed_tokens, at_dec_nat_enc,
-                 at_dec,
+                 at_dec_1,
+                 at_dec_2,
+                 at_dec_3,
+                 at_dec_4,
+                 at_dec_5,
+                 at_dec_6,
                  pos_dec,
                  dphead_dec,
                  dplable_dec):
         super().__init__(args, dictionary, embed_tokens)
         self.at_dec_nat_enc = at_dec_nat_enc
-        self.at_dec = at_dec
+        self.at_dec_1 = at_dec_1
+        self.at_dec_2 = at_dec_2
+        self.at_dec_3 = at_dec_3
+        self.at_dec_4 = at_dec_4
+        self.at_dec_5 = at_dec_5
+        self.at_dec_6 = at_dec_6
         self.pos_dec = pos_dec
         self.dphead_dec = dphead_dec
         self.dplable_dec = dplable_dec
+    
 
     def forward(self, encoder_out, prev_output_tokens, normalize: bool = False, features_only: bool = False):
         features, _ = self.extract_features(
@@ -60,8 +71,8 @@ class dp_decoder(NAT_ctc_decoder):
         return F.log_softmax(decoder_out, -1) if normalize else decoder_out
 
 
-@register_model("dp_ctc_multi")
-class dp_ctc_multi_model(NAT_ctc_model):
+@register_model("t1dp_ctc_multi")
+class t1dp_ctc_multi_model(NAT_ctc_model):
 
     #hzj
     def get_targets(self, sample, net_output, key, output_property=None):
@@ -161,23 +172,27 @@ class dp_ctc_multi_model(NAT_ctc_model):
     @classmethod
     def build_decoder(cls, args, tgt_dict, pos_dict, dphead_dict, dplabel_dict, embed_tokens, decoder_embed_pos, decoder_embed_dphead, decoder_embed_dplabel ):
         # nat_decoder = NATransformerModel.build_decoder(args, tgt_dict, embed_tokens)
-        at_dec_nat_enc = ShallowTranformerDecoder(args, tgt_dict, embed_tokens)
-        at_dec = ShallowTranformerDecoder(args, tgt_dict, embed_tokens)
-        pos_dec = ShallowTranformerDecoder(args, pos_dict, decoder_embed_pos)
-        dphead_dec = ShallowTranformerDecoder(args, dphead_dict, decoder_embed_dphead)
-        dplable_dec = ShallowTranformerDecoder(args, dplabel_dict, decoder_embed_dplabel)
-        return dp_decoder(args, tgt_dict, embed_tokens, at_dec_nat_enc,
-                              at_dec,
-                              pos_dec,
-                              dphead_dec,
-                              dplable_dec
-                              )
+        if getattr(args, "share_at_decoder", False):
+            at_dec = ShallowTranformerDecoder(args, tgt_dict, embed_tokens)
+            pos_dec = ShallowTranformerDecoder(args, pos_dict, decoder_embed_pos)
+            dphead_dec = ShallowTranformerDecoder(args, dphead_dict, decoder_embed_dphead)
+            dplable_dec = ShallowTranformerDecoder(args, dplabel_dict, decoder_embed_dplabel)
+            return dp_decoder(args, tgt_dict, embed_tokens,
+                                  at_dec, at_dec, at_dec, at_dec, at_dec, at_dec, at_dec,
+                                  pos_dec,
+                                  dphead_dec,
+                                  dplable_dec
+                                  )
+        else:
+            print("hzj-只支持共享decoder,share_at_decoder=true")
+        
+
 
     def add_args(parser):
         NAT_ctc_model.add_args(parser)
         parser.add_argument("--shallow-at-decoder-layers", type=int, metavar='N',
                             help="the number of at decoder.")
-        parser.add_argument("--share-at-decoder", default=False, action='store_true',
+        parser.add_argument("--share-at-decoder", default=True, action='store_true',
                             help='if set, share all at decoder\'s param.')
         parser.add_argument("--is-random", default=False, action='store_true',
                             help='if set, randomly select at decoder layer.')
@@ -223,56 +238,91 @@ class dp_ctc_multi_model(NAT_ctc_model):
         dec_each_layer_output = dec_each_layer_output_and_attn['inner_states']
         #hzj
         #ar层
-        #最后一层
-        last_dec_layer_output = dec_each_layer_output[-1] 
-        ar_dec = self.decoder.at_dec
-        shallow_at_encode_output = {
-            "encoder_out": [last_dec_layer_output],
-            "encoder_padding_mask": [at_encoder_out["upsample_mask"]]
+        dec_dict = {
+            1: self.decoder.at_dec_1,
+            2: self.decoder.at_dec_2,
+            3: self.decoder.at_dec_3,
+            4: self.decoder.at_dec_4,
+            5: self.decoder.at_dec_5,
+            6: self.decoder.at_dec_6
         }
-        at_dec_layer_output, _ = ar_dec(prev_at,
-                                                encoder_out=shallow_at_encode_output,
-                                                features_only=False,
-                                                return_all_hiddens=False)
-        at_dec_nat_output.append(at_dec_layer_output)
+        dec_list = [1, 2, 3, 4, 5, 6]
+        if getattr(self.args, "is_random", True):
+            random.shuffle(dec_list)
+            dec_list = dec_list[:3]
+        for idx, dec_layer_output in enumerate(dec_each_layer_output):
+            # initial x
+            if idx not in dec_list:
+                continue
+            shallow_at_encode_output = {
+                "encoder_out": [dec_layer_output],
+                "encoder_padding_mask": [at_encoder_out["upsample_mask"]]
+            }
+            at_dec_nat_dec_layer_output, _ = dec_dict[idx](prev_at,
+                                                           encoder_out=shallow_at_encode_output,
+                                                           features_only=False,
+                                                           return_all_hiddens=False)
+            at_dec_nat_output.append(at_dec_nat_dec_layer_output)
+
         #dphead层
-        #倒数第二层
-        last2_dec_layer_output = dec_each_layer_output[-2]
+        #1-6层中选3个
+        dphead_lay_list=[1,2,3,4,5,6]
+        random.shuffle(dphead_lay_list)
+        dphead_lay_list = dphead_lay_list[:3]
         dphead_dec = self.decoder.dphead_dec
-        shallow_dphead_encode_output = {
-            "encoder_out": [last2_dec_layer_output],
-            "encoder_padding_mask": [at_encoder_out["upsample_mask"]]
-        }
-        dphead_dec_layer_output, _ = dphead_dec(prev_dphead,
-                                                encoder_out=shallow_dphead_encode_output,
-                                                features_only=False,
-                                                return_all_hiddens=False)
-        dphead_dec_output.append(dphead_dec_layer_output)
+        for idx, dec_layer_output in enumerate(dec_each_layer_output):
+            # initial x
+            if idx not in dphead_lay_list:
+                continue
+            shallow_dphead_encode_output = {
+                "encoder_out": [dec_layer_output],
+                "encoder_padding_mask": [at_encoder_out["upsample_mask"]]
+            }
+            dphead_dec_layer_output, _ = dphead_dec(prev_dphead,
+                                                    encoder_out=shallow_dphead_encode_output,
+                                                    features_only=False,
+                                                    return_all_hiddens=False)
+            dphead_dec_output.append(dphead_dec_layer_output)
+        
         #dplable层
-        #倒数第二层
+        #1-6层中选3个
+        dplable_lay_list=[1,2,3,4,5,6]
+        random.shuffle(dplable_lay_list)
+        dplable_lay_list = dplable_lay_list[:3]
         dplable_dec = self.decoder.dplable_dec
-        shallow_dplable_encode_output = {
-            "encoder_out": [last2_dec_layer_output],
-            "encoder_padding_mask": [at_encoder_out["upsample_mask"]]
-        }
-        dplable_dec_layer_output, _ = dplable_dec(prev_dplable,
-                                                encoder_out=shallow_dplable_encode_output,
-                                                features_only=False,
-                                                return_all_hiddens=False)
-        dplable_dec_output.append(dplable_dec_layer_output)
+        for idx, dec_layer_output in enumerate(dec_each_layer_output):
+            # initial x
+            if idx not in dplable_lay_list:
+                continue
+            shallow_dplable_encode_output = {
+                "encoder_out": [dec_layer_output],
+                "encoder_padding_mask": [at_encoder_out["upsample_mask"]]
+            }
+            dplable_dec_layer_output, _ = dplable_dec(prev_dplable,
+                                                    encoder_out=shallow_dplable_encode_output,
+                                                    features_only=False,
+                                                    return_all_hiddens=False)
+            dplable_dec_output.append(dplable_dec_layer_output)
+       
         #pos层
-        #第一层
-        first_dec_layer_output = dec_each_layer_output[0]
+        #1-6层中选3个
+        pos_lay_list=[1,2,3,4,5,6]
+        random.shuffle(pos_lay_list)
+        pos_lay_list = pos_lay_list[:3]
         pos_dec = self.decoder.pos_dec
-        shallow_pos_encode_output = {
-            "encoder_out": [first_dec_layer_output],
-            "encoder_padding_mask": [at_encoder_out["upsample_mask"]]
-        }
-        pos_dec_layer_output, _ = pos_dec(prev_pos,
-                                                encoder_out=shallow_pos_encode_output,
-                                                features_only=False,
-                                                return_all_hiddens=False)
-        pos_dec_output.append(pos_dec_layer_output)
+        for idx, dec_layer_output in enumerate(dec_each_layer_output):
+            # initial x
+            if idx not in pos_lay_list:
+                continue
+            shallow_pos_encode_output = {
+                "encoder_out": [dec_layer_output],
+                "encoder_padding_mask": [at_encoder_out["upsample_mask"]]
+            }
+            pos_dec_layer_output, _ = pos_dec(prev_pos,
+                                                    encoder_out=shallow_pos_encode_output,
+                                                    features_only=False,
+                                                    return_all_hiddens=False)
+            pos_dec_output.append(pos_dec_layer_output)
 
         return ({
                     "out": nat_decode_output,  # T x B x C
@@ -297,7 +347,7 @@ class dp_ctc_multi_model(NAT_ctc_model):
         )
 
 
-@register_model_architecture("dp_ctc_multi", "dp_ctc_multi")
+@register_model_architecture("t1dp_ctc_multi", "t1dp_ctc_multi")
 def base_architecture(args):
     # This is actually nat_ctc_decoder.
     args.encoder_embed_path = getattr(args, "encoder_embed_path", None)

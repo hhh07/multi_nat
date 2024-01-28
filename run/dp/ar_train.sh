@@ -2,12 +2,12 @@
 
 export CUDA_VISIBLE_DEVICES=1
 
-savedir=model/0dp
+savedir=model/1dp
 dataset=data-bin/distill_iwslt14.tokenized.de-en
 userdir=multitasknat
 task=dp_ctc_task
-criterion=t0dp_ctc_loss
-arch=t0dp_ctc_multi
+criterion=t1dp_ctc_loss
+arch=t1dp_ctc_multi
 max_token=8192
 max_update=250000
 update_freq=2
@@ -58,6 +58,6 @@ python train.py \
     --keep-last-epochs 3 \
     --keep-best-checkpoints 5 \
     --tags-path ${tag_path} \
-    --without-enc  --without-at | tee -a ${log}
-    # --is-random \
-    # --share-at-decoder \
+    --is-random \
+    --share-at-decoder  | tee -a ${log}
+

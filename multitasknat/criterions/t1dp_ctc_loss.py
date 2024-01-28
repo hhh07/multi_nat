@@ -9,8 +9,8 @@ import numpy as np
 import gc
 
 
-@register_criterion("dp_ctc_loss")
-class dp_ctc_loss(LabelSmoothedDualImitationCriterion):
+@register_criterion("t1dp_ctc_loss")
+class t1dp_ctc_loss(LabelSmoothedDualImitationCriterion):
     def __init__(self, task, lambda_nat_at, label_smoothing, zero_infinity,
                  ):
         super().__init__(task, label_smoothing)
@@ -229,6 +229,19 @@ class dp_ctc_loss(LabelSmoothedDualImitationCriterion):
         for at_loss in at_loss_list:
             logging_output["at-" + str(num_at_loss) + "-loss"] = at_loss.data
             num_at_loss += 1
+        num_at_loss = 1
+        for pos_loss in pos_loss_list:
+            logging_output["pos-" + str(num_at_loss) + "-loss"] = pos_loss.data
+            num_at_loss += 1
+        num_at_loss = 1
+        for dphead_loss in dphead_loss_list:
+            logging_output["pos-" + str(num_at_loss) + "-loss"] = dphead_loss.data
+            num_at_loss += 1
+        num_at_loss = 1
+        for dplable_loss in dplable_loss_list:
+            logging_output["pos-" + str(num_at_loss) + "-loss"] = dplable_loss.data
+            num_at_loss += 1
+        
         return loss, sample_size, logging_output
 
     @staticmethod
