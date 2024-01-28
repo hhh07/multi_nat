@@ -5,5 +5,6 @@
 
 from .mt_ctc_loss import *
 from .upsample_ctc_loss import *
-from.ar_ctc_loss import *
+from .ar_ctc_loss import *
 from .dp_ctc_loss import *
+from .t1dp_ctc_loss import *

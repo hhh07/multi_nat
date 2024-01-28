@@ -60,8 +60,8 @@ class dp_decoder(NAT_ctc_decoder):
         return F.log_softmax(decoder_out, -1) if normalize else decoder_out
 
 
-@register_model("t0dp_ctc_multi")
-class T0_dp_ctc_multi_model(NAT_ctc_model):
+@register_model("dp_ctc_multi")
+class dp_ctc_multi_model(NAT_ctc_model):
 
     #hzj
     def get_targets(self, sample, net_output, key, output_property=None):
@@ -183,9 +183,6 @@ class T0_dp_ctc_multi_model(NAT_ctc_model):
                             help='if set, randomly select at decoder layer.')
         parser.add_argument("--without-enc", default=False, action='store_true',
                             help='do not use nat encoder output.')
-        parser.add_argument("--without-at", default=False, action='store_true',
-                            help='do not use nat encoder output.')
-        
 
     def forward(self, at_src_tokens, nat_src_tokens, src_lengths, prev_nat, prev_at, prev_pos, prev_dphead, prev_dplable, tgt_tokens, **kwargs):
         nat_encoder_out = self.encoder(nat_src_tokens, src_lengths=src_lengths, **kwargs)
@@ -227,18 +224,17 @@ class T0_dp_ctc_multi_model(NAT_ctc_model):
         #hzj
         #ar层
         #最后一层
-        if not getattr(self.args, "without_at", False):
-            last_dec_layer_output = dec_each_layer_output[-1] 
-            ar_dec = self.decoder.at_dec
-            shallow_at_encode_output = {
-                "encoder_out": [last_dec_layer_output],
-                "encoder_padding_mask": [at_encoder_out["upsample_mask"]]
-            }
-            at_dec_layer_output, _ = ar_dec(prev_at,
-                                                    encoder_out=shallow_at_encode_output,
-                                                    features_only=False,
-                                                    return_all_hiddens=False)
-            at_dec_nat_output.append(at_dec_layer_output)
+        last_dec_layer_output = dec_each_layer_output[-1] 
+        ar_dec = self.decoder.at_dec
+        shallow_at_encode_output = {
+            "encoder_out": [last_dec_layer_output],
+            "encoder_padding_mask": [at_encoder_out["upsample_mask"]]
+        }
+        at_dec_layer_output, _ = ar_dec(prev_at,
+                                                encoder_out=shallow_at_encode_output,
+                                                features_only=False,
+                                                return_all_hiddens=False)
+        at_dec_nat_output.append(at_dec_layer_output)
         #dphead层
         #倒数第二层
         last2_dec_layer_output = dec_each_layer_output[-2]
@@ -283,6 +279,10 @@ class T0_dp_ctc_multi_model(NAT_ctc_model):
                     "name": "NAT"
                 },
                 {
+                    "out": at_dec_nat_output,  # B x T x C
+                    "name": "AT"
+                },
+                {
                     "out": dphead_dec_output,  # B x T x C
                     "name": "DPHEAD"
                 },
@@ -297,7 +297,7 @@ class T0_dp_ctc_multi_model(NAT_ctc_model):
         )
 
 
-@register_model_architecture("t0dp_ctc_multi", "t0dp_ctc_multi")
+@register_model_architecture("dp_ctc_multi", "dp_ctc_multi")
 def base_architecture(args):
     # This is actually nat_ctc_decoder.
     args.encoder_embed_path = getattr(args, "encoder_embed_path", None)

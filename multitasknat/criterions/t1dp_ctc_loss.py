@@ -9,8 +9,8 @@ import numpy as np
 import gc
 
 
-@register_criterion("t0dp_ctc_loss")
-class T0_dp_ctc_loss(LabelSmoothedDualImitationCriterion):
+@register_criterion("dp_ctc_loss")
+class dp_ctc_loss(LabelSmoothedDualImitationCriterion):
     def __init__(self, task, lambda_nat_at, label_smoothing, zero_infinity,
                  ):
         super().__init__(task, label_smoothing)
@@ -100,30 +100,30 @@ class T0_dp_ctc_loss(LabelSmoothedDualImitationCriterion):
                         zero_infinity=self.zero_infinity,
                     )
                 hybrid_loss["NAT"] = loss
-            # elif outputs['name'] == "AT":
-            #     if outputs.get("loss", None) is None:
-            #         at_net_outputs = outputs['out']
-            #         at_loss_list, at_nll_loss_list = [], []
-            #         output_property = outputs.get("property")
-            #         for i, at_net_output in enumerate(at_net_outputs):
-            #             at_lprobs = model.get_normalized_probs(at_net_output, log_probs=True)
-            #             if output_property is not None:
-            #                 at_target = model.get_targets(at_sample, at_net_output, "AT", output_property[i])
-            #             else:
-            #                 at_target = model.get_targets(at_sample, at_net_output, "AT")
+            elif outputs['name'] == "AT":
+                if outputs.get("loss", None) is None:
+                    at_net_outputs = outputs['out']
+                    at_loss_list, at_nll_loss_list = [], []
+                    output_property = outputs.get("property")
+                    for i, at_net_output in enumerate(at_net_outputs):
+                        at_lprobs = model.get_normalized_probs(at_net_output, log_probs=True)
+                        if output_property is not None:
+                            at_target = model.get_targets(at_sample, at_net_output, "AT", output_property[i])
+                        else:
+                            at_target = model.get_targets(at_sample, at_net_output, "AT")
 
-            #             at_loss, at_nll_loss = label_smoothed_nll_loss(
-            #                 at_lprobs.view(-1, at_lprobs.size(-1)), at_target.view(-1, 1), self.label_smoothing,
-            #                 ignore_index=self.padding_idx,
-            #                 reduce=reduce,
-            #             )
-            #             at_loss, at_nll_loss = at_loss.mean(), at_nll_loss.mean()
-            #             at_loss_list.append(at_loss)
-            #             at_nll_loss_list.append(at_nll_loss)
-            #         hybrid_loss["AT"] = sum(l for l in at_loss_list) / len(at_loss_list) if len(at_loss_list) != 0 else torch.tensor(0,device='cuda:0')
-            #     else:
-            #         hybrid_loss["AT"] = outputs["loss"]
-            #         at_loss_list = outputs['at_loss_list']
+                        at_loss, at_nll_loss = label_smoothed_nll_loss(
+                            at_lprobs.view(-1, at_lprobs.size(-1)), at_target.view(-1, 1), self.label_smoothing,
+                            ignore_index=self.padding_idx,
+                            reduce=reduce,
+                        )
+                        at_loss, at_nll_loss = at_loss.mean(), at_nll_loss.mean()
+                        at_loss_list.append(at_loss)
+                        at_nll_loss_list.append(at_nll_loss)
+                    hybrid_loss["AT"] = sum(l for l in at_loss_list) / len(at_loss_list)
+                else:
+                    hybrid_loss["AT"] = outputs["loss"]
+                    at_loss_list = outputs['at_loss_list']
             #hzj
             elif outputs['name'] == "POS":
                 if outputs.get("loss", None) is None:
@@ -202,8 +202,7 @@ class T0_dp_ctc_loss(LabelSmoothedDualImitationCriterion):
 
         #hzj  计算loss
         #要改
-        #print(hybrid_loss["AT"].data)
-        loss = self.lambda_nat_at * (hybrid_loss["POS"] + hybrid_loss["DPHEAD"] + hybrid_loss["DPLABLE"] ) / 3 + \
+        loss = self.lambda_nat_at * (hybrid_loss["AT"] + hybrid_loss["POS"] + hybrid_loss["DPHEAD"] + hybrid_loss["DPLABLE"] ) / 4 + \
                (1 - self.lambda_nat_at) * hybrid_loss["NAT"]
 
         # NOTE:
@@ -217,6 +216,7 @@ class T0_dp_ctc_loss(LabelSmoothedDualImitationCriterion):
             "nsentences": nsentences,
             "sample_size": sample_size,
             "nat-ctc-loss": hybrid_loss["NAT"].data,
+            "at-average-loss": hybrid_loss["AT"].data,
             "pos-loss": hybrid_loss["POS"].data,
             "dphead-loss": hybrid_loss["DPHEAD"].data,
             "dplable-loss": hybrid_loss["DPLABLE"].data
@@ -226,9 +226,9 @@ class T0_dp_ctc_loss(LabelSmoothedDualImitationCriterion):
         if "glat_context_p" in hybrid_outputs[0]:
             logging_output['glat_context_p'] = hybrid_outputs[0]['glat_context_p']
         num_at_loss = 1
-        # for at_loss in at_loss_list:
-        #     logging_output["at-" + str(num_at_loss) + "-loss"] = at_loss.data
-        #     num_at_loss += 1
+        for at_loss in at_loss_list:
+            logging_output["at-" + str(num_at_loss) + "-loss"] = at_loss.data
+            num_at_loss += 1
         return loss, sample_size, logging_output
 
     @staticmethod
