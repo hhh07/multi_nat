@@ -15,6 +15,20 @@ from typing import Optional, List, Dict
 from torch import Tensor
 from omegaconf import DictConfig
 
+def normal(src_tokens, scale, src_dict):
+    pad = src_dict.pad()
+    bos = src_dict.bos()
+    eos = src_dict.eos()
+    unk = src_dict.unk()
+
+    _mask = (
+            src_tokens.eq(bos) | src_tokens.eq(eos) | src_tokens.eq(pad)
+    )
+    src_tokens = src_tokens.masked_fill(~_mask, unk)
+    bsz = src_tokens.size(0)
+    upsample_src_tokens = src_tokens.unsqueeze(-1).expand(bsz, -1, scale).reshape(bsz, -1)
+    return upsample_src_tokens
+
 
 class ShallowTranformerDecoder(TransformerDecoder):
     def __init__(self, args, dictionary, embed_tokens, no_encoder_attn=False):
@@ -93,6 +107,8 @@ class mt_ctc_multi_model(NAT_ctc_model):
                             help='if set, randomly select at decoder layer.')
         parser.add_argument("--without-enc", default=False, action='store_true',
                             help='do not use nat encoder output.')
+        # parser.add_argument("--model-out-type", default="nat",
+        #                     help='do not use nat encoder output.')
 
     def forward(self, at_src_tokens, nat_src_tokens, src_lengths, prev_nat, prev_at, tgt_tokens, **kwargs):
         nat_encoder_out = self.encoder(nat_src_tokens, src_lengths=src_lengths, **kwargs)
@@ -161,6 +177,94 @@ class mt_ctc_multi_model(NAT_ctc_model):
                     "name": "AT"
                 }
         )
+
+##at推理
+    # def forward_decoder(
+    #     self,
+    #     tokens,
+    #     encoder_out,
+    #     incremental_state,
+    #     temperature: float = 1.0,
+    # ):
+    #     #if  getattr(self.args, "model-out-type", "at"):
+    #         at_dec = self.decoder.at_dec_nat_dec_5
+    #         return at_dec.forward(tokens, encoder_out=encoder_out)
+        
+
+    # def forward_encoder(self, encoder_inputs,upsample_scale, src_dict):
+    #     #encoder_outs = self.model.forward_encoder(net_input)
+    #     #input = net_input
+        
+    #     src_tokens = encoder_inputs["src_tokens"].clone()
+    #     upsample_src_tokens = normal(src_tokens, upsample_scale, src_dict)
+    #     prev_nat = upsample_src_tokens
+    #     at_src_tokens, src_lengths, nat_src_tokens = (
+    #         encoder_inputs["src_tokens"],
+    #         encoder_inputs["src_lengths"],
+    #         encoder_inputs["src_tokens"]
+    #     )
+    #     prev_at = encoder_inputs["prev_output_tokens"]
+    #     # at_tgt_tokens, prev_nat, prev_at = at_sample["target"], \
+    #     #                                    nat_sample["prev_target"], \
+    #     #                                    at_sample["net_input"]["prev_output_tokens"]
+
+    #     nat_encoder_out = self.encoder(nat_src_tokens, src_lengths=src_lengths)
+    #     at_encoder_out = nat_encoder_out
+    #     #nat_decoder_ouput
+    #     if getattr(self.args, "if_deepcopy_at_sample", False):
+    #         at_encoder_out = self.encoder(at_src_tokens, src_lengths=src_lengths)
+    #         nat_decode_output = self.decoder(nat_encoder_out,
+    #                                         prev_nat,
+    #                                         normalize=False,
+    #                                         features_only=False)
+    #         _, dec_each_layer_output_and_attn = self.decoder(at_encoder_out,
+    #                                                         prev_nat,
+    #                                                         normalize=False,
+    #                                                         features_only=True)
+    #     else:
+    #         nat_decode_features, dec_each_layer_output_and_attn = self.decoder(nat_encoder_out,
+    #                                                                         prev_nat,
+    #                                                                         normalize=False,
+    #                                                                         features_only=True)
+
+    #         nat_decode_output = self.decoder.output_layer(nat_decode_features)
+
+    #     # AT  decoding
+    #     dec_each_layer_output = dec_each_layer_output_and_attn['inner_states']
+    #     dec_layer_output = dec_each_layer_output[-1]
+    #     shallow_at_encode_output = {
+    #         "encoder_out": [dec_layer_output],
+    #         "encoder_padding_mask": [at_encoder_out["upsample_mask"]]
+    #     }
+    #     return shallow_at_encode_output
+
+    # def reorder_encoder_out(self, encoder_out: Dict[str, List[Tensor]], new_order):
+    #     """
+    #     Reorder encoder output according to *new_order*.
+
+    #     Args:
+    #         encoder_out: output from the ``forward()`` method
+    #         new_order (LongTensor): desired order
+
+    #     Returns:
+    #         *encoder_out* rearranged according to *new_order*
+    #     """
+        
+    #     if len(encoder_out["encoder_out"]) == 0:
+    #         new_encoder_out = []
+    #     else:
+    #         new_encoder_out = [encoder_out["encoder_out"][0].index_select(1, new_order)]
+    #     if len(encoder_out["encoder_padding_mask"]) == 0:
+    #         new_encoder_padding_mask = []
+    #     else:
+    #         new_encoder_padding_mask = [
+    #             encoder_out["encoder_padding_mask"][0].index_select(0, new_order)
+    #         ]
+
+    #     return {
+    #         "encoder_out": new_encoder_out,  # T x B x C
+    #         "encoder_padding_mask": new_encoder_padding_mask,  # B x T
+    #     }
 
 
 @register_model_architecture("mt_ctc_multi", "mt_ctc_multi")

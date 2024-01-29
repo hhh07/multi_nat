@@ -8,6 +8,7 @@ from copy import deepcopy
 import logging
 
 import torch
+from typing import Optional
 
 from dataclasses import dataclass, field
 from fairseq.tasks import register_task
@@ -68,6 +69,9 @@ class MTCTCConfig(NATCTCConfig):
         default=300000, metadata={"help": "total updates"}
     )
     glat: bool = field(
+        default=False,
+    )
+    out_type_at: bool = field(
         default=False,
     )
 
@@ -165,3 +169,29 @@ class MT_CTC_Task(NATCTC_Task):
             return sacrebleu.corpus_bleu(hyps, [refs], tokenize="none")
         else:
             return sacrebleu.corpus_bleu(hyps, [refs])
+
+    def build_generator(self, models, args, **unused):
+        # add models input to match the API for SequenceGenerator
+        from fairseq.tasks import FairseqTask
+        from fairseq import metrics, search, tokenizer, utils
+        out_type_at = self.cfg.out_type_at
+        if out_type_at:
+            return FairseqTask.build_generator(self, models, args, **unused)
+        else:
+            return super().build_generator(models, args, **unused)
+        
+
+    def inference_step(
+        self, generator, models, sample, prefix_tokens=None, constraints=None
+    ):  
+        out_type_at = self.cfg.out_type_at
+        if out_type_at:
+            with torch.no_grad():
+                return generator.generate(
+                    #加2参数
+                    models, sample, prefix_tokens=prefix_tokens, constraints=constraints, upsample_scale=self.cfg.upsample_scale, src_dict=self.src_dict
+                )
+        else:
+            return super().inference_step(generator, models, sample, prefix_tokens=prefix_tokens, constraints=constraints)
+
+
