@@ -142,4 +142,5 @@ apex
 mydata
 00debug
 01draw_pic
-log_util/*.png
+log_util
+run/dp

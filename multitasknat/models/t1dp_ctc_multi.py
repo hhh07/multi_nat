@@ -268,7 +268,7 @@ class t1dp_ctc_multi_model(NAT_ctc_model):
         #1-6层中选3个
         dphead_lay_list=[1,2,3,4,5,6]
         random.shuffle(dphead_lay_list)
-        dphead_lay_list = dphead_lay_list[:3]
+        dphead_lay_list = dphead_lay_list[:1]
         dphead_dec = self.decoder.dphead_dec
         for idx, dec_layer_output in enumerate(dec_each_layer_output):
             # initial x
@@ -288,7 +288,7 @@ class t1dp_ctc_multi_model(NAT_ctc_model):
         #1-6层中选3个
         dplable_lay_list=[1,2,3,4,5,6]
         random.shuffle(dplable_lay_list)
-        dplable_lay_list = dplable_lay_list[:3]
+        dplable_lay_list = dplable_lay_list[:1]
         dplable_dec = self.decoder.dplable_dec
         for idx, dec_layer_output in enumerate(dec_each_layer_output):
             # initial x
@@ -308,7 +308,7 @@ class t1dp_ctc_multi_model(NAT_ctc_model):
         #1-6层中选3个
         pos_lay_list=[1,2,3,4,5,6]
         random.shuffle(pos_lay_list)
-        pos_lay_list = pos_lay_list[:3]
+        pos_lay_list = pos_lay_list[:1]
         pos_dec = self.decoder.pos_dec
         for idx, dec_layer_output in enumerate(dec_each_layer_output):
             # initial x
