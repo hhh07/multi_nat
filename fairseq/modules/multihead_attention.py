@@ -123,6 +123,9 @@ class MultiheadAttention(nn.Module):
         attn_mask: Optional[Tensor] = None,
         before_softmax: bool = False,
         need_head_weights: bool = False,
+        dep_dist:Tensor=None,
+        dep_dist_drop: float=0.0,
+        dep_heads: int=0,
     ) -> Tuple[Tensor, Optional[Tensor]]:
         """Input shape: Time x Batch x Channel
 
@@ -158,6 +161,7 @@ class MultiheadAttention(nn.Module):
             # A workaround for quantization to work. Otherwise JIT compilation
             # treats bias in linear module as method.
             and not torch.jit.is_scripting()
+            and dep_dist is  None
         ):
             assert key is not None and value is not None
             return F.multi_head_attention_forward(
@@ -325,6 +329,18 @@ class MultiheadAttention(nn.Module):
         attn_weights = self.apply_sparse_mask(attn_weights, tgt_len, src_len, bsz)
 
         assert list(attn_weights.size()) == [bsz * self.num_heads, tgt_len, src_len]
+
+        # yzh dep
+        # 问题：dep_dist和句子的长度不一样
+        if dep_heads > 0:
+            dep_dist_expand = dep_dist.repeat(1, dep_heads, 1).view(-1, dep_dist.size(1), dep_dist.size(1))
+            if self.training and dep_dist_drop > 0.:
+                samples = torch.distributions.binomial.Binomial(probs=1-dep_dist_drop) \
+                    .sample(dep_dist_expand.size()[:2]).to(dep_dist_expand.device)
+                inv_samples = 1 - samples
+                dep_dist_expand = dep_dist_expand * samples.unsqueeze(2) + inv_samples.unsqueeze(2)
+            attn_weights[-dep_heads * bsz:] *= dep_dist_expand
+
 
         if attn_mask is not None:
             attn_mask = attn_mask.unsqueeze(0)

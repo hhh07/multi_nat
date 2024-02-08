@@ -8,10 +8,14 @@ import logging
 import numpy as np
 import torch
 from fairseq.data import FairseqDataset, data_utils
+from fairseq.data.raw_label_dataset import RawLabelDataset
+from typing import Optional
 
 
 logger = logging.getLogger(__name__)
 
+SIGMA = 1.0
+VAR_TIMES_2 = torch.tensor(2 * SIGMA ** 2)
 
 def collate(
     samples,
@@ -22,9 +26,18 @@ def collate(
     input_feeding=True,
     pad_to_length=None,
     pad_to_multiple=1,
+    pad_dep=-1,
 ):
     if len(samples) == 0:
         return {}
+
+    def check_dependency(dependency, seq_len):
+        if dependency is None or len(dependency) == 0:
+            return False
+        if dependency.max().item() >= seq_len:
+            logger.warning("dependency size mismatch found, skipping dependency!")
+            return False
+        return True
 
     def merge(key, left_pad, move_eos_to_beginning=False, pad_to_length=None):
         return data_utils.collate_tokens(
@@ -255,6 +268,58 @@ def collate(
             constraints[i, 0 : lens[i]] = samples[i].get("constraints")
         batch["constraints"] = constraints.index_select(0, sort_order)
 
+    def _get_batch_dep(batch_samples, batch_tokens, lengths, batch_sort_order, dep_name: str,
+                       left_pad: bool, pad_dep=-1):
+        batch_size, seq_size = batch_tokens.shape
+
+        batch_dependency = list()
+        for dep_idx, snt_len in zip(batch_sort_order, lengths):
+            for dependency in [batch_samples[dep_idx][dep_name]]:
+                if check_dependency(dependency, snt_len):
+                    if seq_size - snt_len > 0:
+                        pad_len = seq_size - snt_len
+                        padding_dependency = torch.full((pad_len, ), pad_dep)
+                        if left_pad:
+                            dependency += pad_len
+                            dependency = torch.cat([padding_dependency, dependency], dim=0)
+                        else:
+                            dependency = torch.cat([dependency, padding_dependency], dim=0)
+                    batch_dependency.append(dependency)
+
+        return torch.stack(batch_dependency, dim=0) if len(batch_dependency) > 0 else None
+
+    def _calc_batch_dep_dist(batch_dep):
+        batch_size, seq_size = batch_dep.shape
+
+        mask_condition = batch_dep < 0
+        dep_dist_mask = (~(
+                mask_condition.unsqueeze(2).repeat(1, 1, seq_size) |
+                mask_condition.unsqueeze(1).repeat(1, seq_size, 1)
+        )).float()
+
+        minus_square = (torch.arange(seq_size) - batch_dep.unsqueeze(-1)) ** 2
+        denominator = torch.sqrt(torch.pi * VAR_TIMES_2)
+        exp_part = torch.exp(-minus_square / VAR_TIMES_2)
+        dep_dist = exp_part / denominator
+        dep_dist *= dep_dist_mask
+
+        return dep_dist
+
+    if samples[0].get("src_dep", None) is not None:
+        batch_dep = _get_batch_dep(samples, batch["net_input"]["src_tokens"], src_lengths, sort_order, "src_dep",
+                                   left_pad_source, pad_dep)
+        if batch_dep is not None:
+            batch["net_input"]["src_dep"] = batch_dep
+            batch["net_input"]["src_dep_dist"] = _calc_batch_dep_dist(batch_dep)
+
+    if samples[0].get("tgt_dep", None) is not None:
+        batch_dep = _get_batch_dep(samples, batch["target"], tgt_lengths, sort_order, "tgt_dep",
+                                   left_pad_target, pad_dep)
+        if batch_dep is not None:
+            batch["tgt_dep"] = batch_dep
+            # batch["tgt_dep_dist"] = _calc_batch_dep_dist(batch_dep)
+
+
     return batch
 
 
@@ -318,6 +383,8 @@ class LanguagePairDataset(FairseqDataset):
         src_lang_id=None,
         tgt_lang_id=None,
         pad_to_multiple=1,
+        src_dep: Optional[RawLabelDataset] = None,
+        tgt_dep: Optional[RawLabelDataset] = None,
     ):
         if tgt_dict is not None:
             #其他要加吗？
@@ -405,6 +472,12 @@ class LanguagePairDataset(FairseqDataset):
             self.buckets = None
         self.pad_to_multiple = pad_to_multiple
 
+        # yzh dep
+        self.src_dep = src_dep
+        self.tgt_dep = tgt_dep
+        self.pad_dep = -1
+        self.eos_dep = -1
+
     def get_batch_shapes(self):
         return self.buckets
 
@@ -454,6 +527,30 @@ class LanguagePairDataset(FairseqDataset):
             example["alignment"] = self.align_dataset[index]
         if self.constraints is not None:
             example["constraints"] = self.constraints[index]
+
+        # yzh dep
+        def _get_dep_item(snt_dep, using_eos: bool):
+            if using_eos:
+                eos_dep = torch.tensor([self.eos_dep], dtype=snt_dep.dtype)
+                return torch.cat([snt_dep, eos_dep], dim=0)
+            else:
+                return snt_dep
+
+        if self.src_dep is not None:
+            example["src_dep"] = _get_dep_item(
+                self.src_dep[index],
+                not self.remove_eos_from_source or (
+                        len(src_item) - len(self.src_dep[index]) == 1 and src_item[-1] == self.eos
+                )
+            )
+        if self.tgt_dep is not None:
+            example["tgt_dep"] = _get_dep_item(
+                self.tgt_dep[index],
+                self.append_eos_to_target or (
+                        len(tgt_item) - len(self.tgt_dep[index]) == 1 and tgt_item[-1] == self.eos
+                )
+            )
+
         return example
 
     def __len__(self):
@@ -504,6 +601,7 @@ class LanguagePairDataset(FairseqDataset):
             input_feeding=self.input_feeding,
             pad_to_length=pad_to_length,
             pad_to_multiple=self.pad_to_multiple,
+            pad_dep=self.pad_dep,
         )
         if self.src_lang_id is not None or self.tgt_lang_id is not None:
             src_tokens = res["net_input"]["src_tokens"]

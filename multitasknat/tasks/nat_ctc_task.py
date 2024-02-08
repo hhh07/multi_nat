@@ -41,6 +41,14 @@ class NATCTCConfig(TranslationLevenshteinConfig):
     expand_dataset: bool = field(
         default=False, metadata={"help": "if set, expand special token with <blk> and <mask>."}
     )
+    dep_dist_drop: float = field(
+        default=0.0,
+        metadata={"help": "dependency distance dropout probability"}
+    )
+    enc_dep_heads: str = field(
+        default="",
+        metadata={"help": "dependency heads for encoder layers, split by comma"},
+    )
 
 
 @register_task('nat_ctc_task', dataclass=NATCTCConfig)

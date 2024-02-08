@@ -11,6 +11,10 @@ import os
 from typing import Optional
 from argparse import Namespace
 from omegaconf import II
+from dataclasses import dataclass, field
+from typing import Optional
+import torch
+from fairseq.logging import metrics
 
 import numpy as np
 from fairseq import metrics, utils
@@ -24,6 +28,7 @@ from fairseq.data import (
     data_utils,
     encoders,
     indexed_dataset,
+    RawLabelDataset,
 )
 from fairseq.data.indexed_dataset import get_available_dataset_impl
 from fairseq.dataclass import ChoiceEnum, FairseqDataclass
@@ -57,6 +62,7 @@ def load_langpair_dataset(
     num_buckets=0,
     shuffle=True,
     pad_to_multiple=1,
+    load_dependency: bool = False,
 ):
     def split_exists(split, src, tgt, lang, data_path):
         filename = os.path.join(data_path, "{}.{}-{}.{}".format(split, src, tgt, lang))
@@ -149,6 +155,27 @@ def load_langpair_dataset(
             )
 
     tgt_dataset_sizes = tgt_dataset.sizes if tgt_dataset is not None else None
+
+    src_dep, tgt_dep = None, None
+    if load_dependency:
+        def _load_dep(data_path: str, split: str, lang: str) -> Optional[RawLabelDataset]:
+            dep_path = os.path.join(data_path, f"dp_enhance{os.sep}dp.{split}.{lang}")
+            if os.path.exists(dep_path):
+                deps = []
+                with open(dep_path, "r") as dep_data:
+                    for h in dep_data:
+                        if h.strip():
+                            # read dependency data line
+                            dep_list = [int(x) - 1 for i, x in enumerate(h.strip().split())]
+                            if prepend_bos :
+                                dep_list.insert(0,-1)
+                            deps.append(torch.tensor(dep_list))
+                return RawLabelDataset(deps)
+            return None
+
+        src_dep = _load_dep(data_path, split, src)
+        tgt_dep = _load_dep(data_path, split, tgt)
+
     return LanguagePairDataset(
         src_dataset,
         src_dataset.sizes,
@@ -163,6 +190,8 @@ def load_langpair_dataset(
         num_buckets=num_buckets,
         shuffle=shuffle,
         pad_to_multiple=pad_to_multiple,
+        src_dep=src_dep,
+        tgt_dep=tgt_dep,
     )
 
 
@@ -258,6 +287,15 @@ class TranslationConfig(FairseqDataclass):
     eval_bleu_print_samples: bool = field(
         default=False, metadata={"help": "print sample generations during validation"}
     )
+
+    # yzh dep
+    load_dependency: bool = field(
+        default=False, metadata={"help": "load the dependency heads"}
+    )
+    dep_dist_calc_variance: float = field(
+        default=1.0, metadata={"help": "sigma in dep dist calculation"}
+    )
+
 
 
 @register_task("translation", dataclass=TranslationConfig)

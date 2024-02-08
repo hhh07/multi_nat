@@ -103,7 +103,10 @@ class TransformerEncoderLayer(nn.Module):
                     state_dict["{}.{}.{}".format(name, new, m)] = state_dict[k]
                     del state_dict[k]
 
-    def forward(self, x, encoder_padding_mask: Optional[Tensor], attn_mask: Optional[Tensor] = None):
+    def forward(self, x, encoder_padding_mask: Optional[Tensor], attn_mask: Optional[Tensor] = None,
+                dep_dist_drop: float=0.0,
+                dep_heads: int=0,
+                **kwargs):
         """
         Args:
             x (Tensor): input to the layer of shape `(seq_len, batch, embed_dim)`
@@ -137,6 +140,9 @@ class TransformerEncoderLayer(nn.Module):
             key_padding_mask=encoder_padding_mask,
             need_weights=False,
             attn_mask=attn_mask,
+            dep_dist=kwargs["src_dep_dist"] if "src_dep_dist" in kwargs.keys() else None,
+            dep_dist_drop=dep_dist_drop,
+            dep_heads=dep_heads,
         )
         x = self.dropout_module(x)
         x = self.residual_connection(x, residual)

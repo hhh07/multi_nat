@@ -65,8 +65,8 @@ class NAT_ctc_model(FairseqNATModel):
         """
         return NAT_ctc_decoder(args, tgt_dict, embed_tokens)
 
-    def forward(self, src_tokens, src_lengths, prev_output_tokens, tgt_tokens):
-        encoder_out = self.encoder(src_tokens, src_lengths)
+    def forward(self, src_tokens, src_lengths, prev_output_tokens, tgt_tokens, **kwargs):
+        encoder_out = self.encoder(src_tokens, src_lengths, **kwargs)
         output = self.decoder(encoder_out, prev_output_tokens, normalize=False)
         return output
 
@@ -261,6 +261,11 @@ class NAT_ctc_encoder(FairseqNATEncoder):
         embed_dim = embed_tokens.embedding_dim
         self.scale = args.upsample_scale
         self.upsample_Linear = nn.Linear(embed_dim, self.scale * embed_dim)
+        # arguments for dependency
+        self.dep_dist_drop = max(0.0, float(args.dep_dist_drop))
+        self.enc_dep_heads_list = [int(x) if x else 0 for x in args.enc_dep_heads.split(",")]
+        if len(self.enc_dep_heads_list) < args.encoder_layers:
+            self.enc_dep_heads_list.extend([0] * (args.encoder_layers - len(self.enc_dep_heads_list)))
 
     def forward(self, src_tokens, src_lengths, token_embeddings: Optional[torch.Tensor] = None, **kwargs):
         # compute padding mask
@@ -277,14 +282,19 @@ class NAT_ctc_encoder(FairseqNATEncoder):
         x = x.transpose(0, 1)
 
         # encoder layers
-        for layer in self.layers:
+        for i, layer in enumerate(self.layers):
             x = layer(
-                x, encoder_padding_mask=encoder_padding_mask if has_pads else None
+                x, encoder_padding_mask=encoder_padding_mask if has_pads else None,
+                dep_dist_drop=self.dep_dist_drop,
+                dep_heads=self.enc_dep_heads_list[i],
+                **kwargs
             )
 
         if self.layer_norm is not None:
             x = self.layer_norm(x)
 
+        #hzj
+        #所以这个地方upsample是在encoder之后？把encoder输出的结果upsample？
         # umsample x
         (sequence_length, batch_size, embed_dim) = x.shape
         upsample_x = x.transpose(0, 1)  # B x T x C
@@ -449,7 +459,8 @@ class NAT_ctc_decoder(FairseqNATDecoder):
 
         if self.project_out_dim is not None:
             x = self.project_out_dim(x)
-
+            
+# 看看为什么执行两遍？
         return x, {"attn": attn, "inner_states": inner_states}
 
 

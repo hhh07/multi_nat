@@ -61,6 +61,7 @@ class TranslationLevenshteinTask(TranslationTask):
             max_source_positions=self.cfg.max_source_positions,
             max_target_positions=self.cfg.max_target_positions,
             prepend_bos=True,
+            load_dependency=self.cfg.load_dependency,
         )
 
     def inject_noise(self, target_tokens):
