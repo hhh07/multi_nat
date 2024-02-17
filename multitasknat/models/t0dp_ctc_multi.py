@@ -227,69 +227,90 @@ class T0_dp_ctc_multi_model(NAT_ctc_model):
         #hzj
         #ar层
         #最后一层
-        if not getattr(self.args, "without_at", False):
-            last_dec_layer_output = dec_each_layer_output[-1] 
-            ar_dec = self.decoder.at_dec
-            shallow_at_encode_output = {
-                "encoder_out": [last_dec_layer_output],
+        # if not getattr(self.args, "without_at", False):
+        #     last_dec_layer_output = dec_each_layer_output[-1] 
+        #     ar_dec = self.decoder.at_dec
+        #     shallow_at_encode_output = {
+        #         "encoder_out": [last_dec_layer_output],
+        #         "encoder_padding_mask": [at_encoder_out["upsample_mask"]]
+        #     }
+        #     at_dec_layer_output, _ = ar_dec(prev_at,
+        #                                             encoder_out=shallow_at_encode_output,
+        #                                             features_only=False,
+        #                                             return_all_hiddens=False)
+        #     at_dec_nat_output.append(at_dec_layer_output)
+
+        # #dphead层
+        # #1-6层中选1个
+        # dphead_lay_list=[3]
+        # #random.shuffle(dphead_lay_list)
+        # dphead_lay_list = dphead_lay_list[:1]
+        # dphead_dec = self.decoder.dphead_dec
+        # for idx, dec_layer_output in enumerate(dec_each_layer_output):
+        #     # initial x
+        #     if idx not in dphead_lay_list:
+        #         continue
+        #     shallow_dphead_encode_output = {
+        #         "encoder_out": [dec_layer_output],
+        #         "encoder_padding_mask": [at_encoder_out["upsample_mask"]]
+        #     }
+        #     dphead_dec_layer_output, _ = dphead_dec(prev_dphead,
+        #                                             encoder_out=shallow_dphead_encode_output,
+        #                                             features_only=False,
+        #                                             return_all_hiddens=False)
+        #     dphead_dec_output.append(dphead_dec_layer_output)
+        # #dplable层
+        # #1-6层中选1个
+        # dplable_lay_list=[3]
+        # #random.shuffle(dplable_lay_list)
+        # dplable_lay_list = dplable_lay_list[:1]
+        # dplable_dec = self.decoder.dplable_dec
+        # for idx, dec_layer_output in enumerate(dec_each_layer_output):
+        #     # initial x
+        #     if idx not in dplable_lay_list:
+        #         continue
+        #     shallow_dplable_encode_output = {
+        #         "encoder_out": [dec_layer_output],
+        #         "encoder_padding_mask": [at_encoder_out["upsample_mask"]]
+        #     }
+        #     dplable_dec_layer_output, _ = dplable_dec(prev_dplable,
+        #                                             encoder_out=shallow_dplable_encode_output,
+        #                                             features_only=False,
+        #                                             return_all_hiddens=False)
+        #     dplable_dec_output.append(dplable_dec_layer_output)
+       
+        # #pos层
+        # #1-6层中选1个
+        pos_lay_list=[3]
+        #random.shuffle(pos_lay_list)
+        pos_lay_list = pos_lay_list[:1]
+        pos_dec = self.decoder.pos_dec
+        for idx, dec_layer_output in enumerate(dec_each_layer_output):
+            # initial x
+            if idx not in pos_lay_list:
+                continue
+            shallow_pos_encode_output = {
+                "encoder_out": [dec_layer_output],
                 "encoder_padding_mask": [at_encoder_out["upsample_mask"]]
             }
-            at_dec_layer_output, _ = ar_dec(prev_at,
-                                                    encoder_out=shallow_at_encode_output,
+            pos_dec_layer_output, _ = pos_dec(prev_pos,
+                                                    encoder_out=shallow_pos_encode_output,
                                                     features_only=False,
                                                     return_all_hiddens=False)
-            at_dec_nat_output.append(at_dec_layer_output)
-        #dphead层
-        #倒数第二层
-        last2_dec_layer_output = dec_each_layer_output[-2]
-        dphead_dec = self.decoder.dphead_dec
-        shallow_dphead_encode_output = {
-            "encoder_out": [last2_dec_layer_output],
-            "encoder_padding_mask": [at_encoder_out["upsample_mask"]]
-        }
-        dphead_dec_layer_output, _ = dphead_dec(prev_dphead,
-                                                encoder_out=shallow_dphead_encode_output,
-                                                features_only=False,
-                                                return_all_hiddens=False)
-        dphead_dec_output.append(dphead_dec_layer_output)
-        #dplable层
-        #倒数第二层
-        dplable_dec = self.decoder.dplable_dec
-        shallow_dplable_encode_output = {
-            "encoder_out": [last2_dec_layer_output],
-            "encoder_padding_mask": [at_encoder_out["upsample_mask"]]
-        }
-        dplable_dec_layer_output, _ = dplable_dec(prev_dplable,
-                                                encoder_out=shallow_dplable_encode_output,
-                                                features_only=False,
-                                                return_all_hiddens=False)
-        dplable_dec_output.append(dplable_dec_layer_output)
-        #pos层
-        #第一层
-        first_dec_layer_output = dec_each_layer_output[0]
-        pos_dec = self.decoder.pos_dec
-        shallow_pos_encode_output = {
-            "encoder_out": [first_dec_layer_output],
-            "encoder_padding_mask": [at_encoder_out["upsample_mask"]]
-        }
-        pos_dec_layer_output, _ = pos_dec(prev_pos,
-                                                encoder_out=shallow_pos_encode_output,
-                                                features_only=False,
-                                                return_all_hiddens=False)
-        pos_dec_output.append(pos_dec_layer_output)
+            pos_dec_output.append(pos_dec_layer_output)
 
         return ({
                     "out": nat_decode_output,  # T x B x C
                     "name": "NAT"
                 },
-                {
-                    "out": dphead_dec_output,  # B x T x C
-                    "name": "DPHEAD"
-                },
-                {
-                    "out": dplable_dec_output,  # B x T x C
-                    "name": "DPLABLE"
-                },
+                # {
+                #     "out": dphead_dec_output,  # B x T x C
+                #     "name": "DPHEAD"
+                # },
+                # {
+                #     "out": dplable_dec_output,  # B x T x C
+                #     "name": "DPLABLE"
+                # }
                 {
                     "out": pos_dec_output,  # B x T x C
                     "name": "POS"

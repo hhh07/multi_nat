@@ -396,53 +396,7 @@ class NAT_ctc_decoder(FairseqNATDecoder):
                 self_attn_padding_mask=self_attn_padding_mask,
             )
             inner_states.append(x)
-        # embed positions
-        positions = None
-        if self.embed_positions is not None:
-            positions = self.embed_positions(
-                prev_output_tokens, incremental_state=incremental_state
-            )
-
-        # embed tokens and positions
-        x = encoder_out["upsample_x"]  # B x self.scale*T x C
-        self_attn_padding_mask = encoder_out["upsample_mask"]
-
-        if self.quant_noise is not None:
-            x = self.quant_noise(x)
-
-        if self.project_in_dim is not None:
-            x = self.project_in_dim(x)
-
-        if positions is not None:
-            x += positions
-
-        if self.layernorm_embedding is not None:
-            x = self.layernorm_embedding(x)
-
-        x = self.dropout_module(x)
-
-        # B x T x C -> T x B x C
-        x = x.transpose(0, 1)
-
-        # decoder layers
-        attn: Optional[Tensor] = None
-        inner_states: List[Optional[Tensor]] = [x]
-        for idx, layer in enumerate(self.layers):
-            x, layer_attn, _ = layer(
-                x,
-                encoder_out["encoder_out"][0]
-                if (encoder_out is not None and len(encoder_out["encoder_out"]) > 0)
-                else None,
-                encoder_out["encoder_padding_mask"][0]
-                if (
-                        encoder_out is not None
-                        and len(encoder_out["encoder_padding_mask"]) > 0
-                )
-                else None,
-                self_attn_mask=None,
-                self_attn_padding_mask=self_attn_padding_mask,
-            )
-            inner_states.append(x)
+        
 
         if self.layer_norm is not None:
             x = self.layer_norm(x)
