@@ -288,15 +288,18 @@ def collate(
 
         return torch.stack(batch_dependency, dim=0) if len(batch_dependency) > 0 else None
 
+    #根据距离生成dist，生成dist包括了掩码-1的部分，感觉不对劲
+    #待修改：应该先生成dist，再加上掩码的部分，掩码部分不参加dist的计算?不然算的不是dist。但是还有问题，
     def _calc_batch_dep_dist(batch_dep):
         batch_size, seq_size = batch_dep.shape
 
         mask_condition = batch_dep < 0
+        #创建mask矩阵
         dep_dist_mask = (~(
                 mask_condition.unsqueeze(2).repeat(1, 1, seq_size) |
                 mask_condition.unsqueeze(1).repeat(1, seq_size, 1)
         )).float()
-
+        #计算dist
         minus_square = (torch.arange(seq_size) - batch_dep.unsqueeze(-1)) ** 2
         denominator = torch.sqrt(torch.pi * VAR_TIMES_2)
         exp_part = torch.exp(-minus_square / VAR_TIMES_2)
@@ -305,12 +308,39 @@ def collate(
 
         return dep_dist
 
+    #binary的dist矩阵
+    def _calc_batch_dep_dist_binary(batch_dep):
+        batch_size, s = batch_dep.shape
+
+        #去掉batch_dep中每个句子的bos和eos
+        batch_dep = batch_dep[:, 1:-1]
+        s=s-2
+
+        # 创建一个 (batch_size, s, s) 的零张量
+        dep_dist = torch.zeros(batch_size, s, s, dtype=torch.float32, device=batch_dep.device).bool()
+        # 使用广播和逻辑运算来实现目标张量的生成
+        mask = torch.arange(s, dtype=torch.long, device=batch_dep.device).unsqueeze(0).repeat(batch_size, 1)
+    
+        dep_dist |= (mask.unsqueeze(2) == batch_dep.unsqueeze(1))
+        dep_dist |= (mask.unsqueeze(1) == batch_dep.unsqueeze(2))
+        # 将对角线元素设置为 1
+        dep_dist |= torch.eye(s, device=batch_dep.device).unsqueeze(0).bool()
+
+        #给dep_dist矩阵加上eos和bos
+        # 创建一个形状为 (batch_size, s+2, s+2) 的零张量
+        padded_dep_dist = torch.zeros(batch_size, s+2, s+2)
+
+        # 将 dep_dist 的值复制到 padded_dep_dist 的中心区域
+        padded_dep_dist[:, 1:-1, 1:-1] = dep_dist.float()
+        
+        return padded_dep_dist
+
     if samples[0].get("src_dep", None) is not None:
         batch_dep = _get_batch_dep(samples, batch["net_input"]["src_tokens"], src_lengths, sort_order, "src_dep",
                                    left_pad_source, pad_dep)
         if batch_dep is not None:
             batch["net_input"]["src_dep"] = batch_dep
-            batch["net_input"]["src_dep_dist"] = _calc_batch_dep_dist(batch_dep)
+            batch["net_input"]["src_dep_dist"] = _calc_batch_dep_dist_binary(batch_dep)
 
     if samples[0].get("tgt_dep", None) is not None:
         batch_dep = _get_batch_dep(samples, batch["target"], tgt_lengths, sort_order, "tgt_dep",
