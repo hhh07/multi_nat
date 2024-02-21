@@ -149,61 +149,61 @@ class T0_dp_ctc_loss(LabelSmoothedDualImitationCriterion):
                 else:
                     hybrid_loss["POS"] = outputs["loss"]
                     pos_loss_list = outputs['pos_loss_list']
-            # elif outputs['name'] == "DPHEAD":
-            #     if outputs.get("loss", None) is None:
-            #         dphead_net_outputs = outputs['out']
-            #         dphead_loss_list, dphead_nll_loss_list = [], []
-            #         output_property = outputs.get("property")
-            #         for i, dphead_net_output in enumerate(dphead_net_outputs):
-            #             dphead_lprobs = model.get_normalized_probs(dphead_net_output, log_probs=True)
-            #             if output_property is not None:
-            #                 dphead_target = model.get_targets(at_sample, dphead_net_output, "DPHEAD", output_property[i])
-            #             else:
-            #                 dphead_target = model.get_targets(at_sample, dphead_net_output, "DPHEAD")
+            elif outputs['name'] == "DPHEAD":
+                if outputs.get("loss", None) is None:
+                    dphead_net_outputs = outputs['out']
+                    dphead_loss_list, dphead_nll_loss_list = [], []
+                    output_property = outputs.get("property")
+                    for i, dphead_net_output in enumerate(dphead_net_outputs):
+                        dphead_lprobs = model.get_normalized_probs(dphead_net_output, log_probs=True)
+                        if output_property is not None:
+                            dphead_target = model.get_targets(at_sample, dphead_net_output, "DPHEAD", output_property[i])
+                        else:
+                            dphead_target = model.get_targets(at_sample, dphead_net_output, "DPHEAD")
 
-            #             dphead_loss, dphead_nll_loss = label_smoothed_nll_loss(
-            #                 dphead_lprobs.view(-1, dphead_lprobs.size(-1)), dphead_target.view(-1, 1), self.label_smoothing,
-            #                 ignore_index=self.padding_idx,
-            #                 reduce=reduce,
-            #             )
-            #             dphead_loss, dphead_nll_loss = dphead_loss.mean(), dphead_nll_loss.mean()
-            #             dphead_loss_list.append(dphead_loss)
-            #             dphead_nll_loss_list.append(dphead_nll_loss)
-            #         hybrid_loss["DPHEAD"] = sum(l for l in dphead_loss_list) / len(dphead_loss_list)
-            #     else:
-            #         hybrid_loss["DPHEAD"] = outputs["loss"]
-            #         dphead_loss_list = outputs['dphead_loss_list']
-            # elif outputs['name'] == "DPLABLE":
-            #     if outputs.get("loss", None) is None:
-            #         dplable_net_outputs = outputs['out']
-            #         dplable_loss_list, dplable_nll_loss_list = [], []
-            #         output_property = outputs.get("property")
-            #         for i, dplable_net_output in enumerate(dplable_net_outputs):
-            #             dplable_lprobs = model.get_normalized_probs(dplable_net_output, log_probs=True)
-            #             if output_property is not None:
-            #                 dplable_target = model.get_targets(at_sample, dplable_net_output, "DPLABLE", output_property[i])
-            #             else:
-            #                 dplable_target = model.get_targets(at_sample, dplable_net_output, "DPLABLE")
+                        dphead_loss, dphead_nll_loss = label_smoothed_nll_loss(
+                            dphead_lprobs.view(-1, dphead_lprobs.size(-1)), dphead_target.view(-1, 1), self.label_smoothing,
+                            ignore_index=self.padding_idx,
+                            reduce=reduce,
+                        )
+                        dphead_loss, dphead_nll_loss = dphead_loss.mean(), dphead_nll_loss.mean()
+                        dphead_loss_list.append(dphead_loss)
+                        dphead_nll_loss_list.append(dphead_nll_loss)
+                    hybrid_loss["DPHEAD"] = sum(l for l in dphead_loss_list) / len(dphead_loss_list)
+                else:
+                    hybrid_loss["DPHEAD"] = outputs["loss"]
+                    dphead_loss_list = outputs['dphead_loss_list']
+            elif outputs['name'] == "DPLABLE":
+                if outputs.get("loss", None) is None:
+                    dplable_net_outputs = outputs['out']
+                    dplable_loss_list, dplable_nll_loss_list = [], []
+                    output_property = outputs.get("property")
+                    for i, dplable_net_output in enumerate(dplable_net_outputs):
+                        dplable_lprobs = model.get_normalized_probs(dplable_net_output, log_probs=True)
+                        if output_property is not None:
+                            dplable_target = model.get_targets(at_sample, dplable_net_output, "DPLABLE", output_property[i])
+                        else:
+                            dplable_target = model.get_targets(at_sample, dplable_net_output, "DPLABLE")
 
-            #             dplable_loss, dplable_nll_loss = label_smoothed_nll_loss(
-            #                 dplable_lprobs.view(-1, dplable_lprobs.size(-1)), dplable_target.view(-1, 1), self.label_smoothing,
-            #                 ignore_index=self.padding_idx,
-            #                 reduce=reduce,
-            #             )
-            #             dplable_loss, dplable_nll_loss = dplable_loss.mean(), dplable_nll_loss.mean()
-            #             dplable_loss_list.append(dplable_loss)
-            #             dplable_nll_loss_list.append(dplable_nll_loss)
-            #         hybrid_loss["DPLABLE"] = sum(l for l in dplable_loss_list) / len(dplable_loss_list)
-            #     else:
-            #         hybrid_loss["DPLABLE"] = outputs["loss"]
-            #         dplable_loss_list = outputs['dplable_loss_list']
+                        dplable_loss, dplable_nll_loss = label_smoothed_nll_loss(
+                            dplable_lprobs.view(-1, dplable_lprobs.size(-1)), dplable_target.view(-1, 1), self.label_smoothing,
+                            ignore_index=self.padding_idx,
+                            reduce=reduce,
+                        )
+                        dplable_loss, dplable_nll_loss = dplable_loss.mean(), dplable_nll_loss.mean()
+                        dplable_loss_list.append(dplable_loss)
+                        dplable_nll_loss_list.append(dplable_nll_loss)
+                    hybrid_loss["DPLABLE"] = sum(l for l in dplable_loss_list) / len(dplable_loss_list)
+                else:
+                    hybrid_loss["DPLABLE"] = outputs["loss"]
+                    dplable_loss_list = outputs['dplable_loss_list']
             else:
                 raise NotImplementedError
 
         #hzj  计算loss
         #要改
         #print(hybrid_loss["AT"].data)
-        loss = self.lambda_nat_at * hybrid_loss["POS"]  + \
+        loss = self.lambda_nat_at * (hybrid_loss["POS"] + hybrid_loss["DPHEAD"] + hybrid_loss["DPLABLE"] ) / 3 + \
                (1 - self.lambda_nat_at) * hybrid_loss["NAT"]
 
         # NOTE:
@@ -218,8 +218,8 @@ class T0_dp_ctc_loss(LabelSmoothedDualImitationCriterion):
             "sample_size": sample_size,
             "nat-ctc-loss": hybrid_loss["NAT"].data,
             "pos-loss": hybrid_loss["POS"].data,
-            #"dphead-loss": hybrid_loss["DPHEAD"].data,
-            #"dplable-loss": hybrid_loss["DPLABLE"].data
+            "dphead-loss": hybrid_loss["DPHEAD"].data,
+            "dplable-loss": hybrid_loss["DPLABLE"].data
         }
         if "glat_accu" in hybrid_outputs[0]:
             logging_output["glat_accu"] = hybrid_outputs[0]['glat_accu']
