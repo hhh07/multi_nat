@@ -14,7 +14,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-SIGMA = 1.0
+SIGMA = 0.7
 VAR_TIMES_2 = torch.tensor(2 * SIGMA ** 2)
 
 def collate(
@@ -340,7 +340,7 @@ def collate(
                                    left_pad_source, pad_dep)
         if batch_dep is not None:
             batch["net_input"]["src_dep"] = batch_dep
-            batch["net_input"]["src_dep_dist"] = _calc_batch_dep_dist_binary(batch_dep)
+            batch["net_input"]["src_dep_dist"] = _calc_batch_dep_dist(batch_dep)
 
     if samples[0].get("tgt_dep", None) is not None:
         batch_dep = _get_batch_dep(samples, batch["target"], tgt_lengths, sort_order, "tgt_dep",

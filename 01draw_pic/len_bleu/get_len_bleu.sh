@@ -1,4 +1,5 @@
-dir=/sda/huzhoujue/NMT/MultiTaskNAT/01draw_pic/len_bleu/iwslt14_at
+cd 01draw_pic/len_bleu
+dir=/sda/huzhoujue/NMT/MultiTaskNAT/01draw_pic/len_bleu/enhance_old
 log=${dir}/test.log
 src=${dir}/src.txt
 target=${dir}/target.txt

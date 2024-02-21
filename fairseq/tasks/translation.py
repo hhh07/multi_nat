@@ -168,7 +168,8 @@ def load_langpair_dataset(
                             # read dependency data line
                             dep_list = [int(x) - 1 for i, x in enumerate(h.strip().split())]
                             if prepend_bos :
-                                dep_list.insert(0,-1)
+                                dep_list = [int(x) for i, x in enumerate(h.strip().split())]
+                                dep_list.insert(0, -1) # bos
                             deps.append(torch.tensor(dep_list))
                 return RawLabelDataset(deps)
             return None
