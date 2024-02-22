@@ -114,7 +114,7 @@ class UpsampleCTCLoss(FairseqCriterion):
                     )
 
                 if self.label_smoothing > 0:
-                    layer_loss = layer_nll_loss * (1 - self.label_smoothing) - mean_ds(lprobs) * self.label_smoothing
+                    layer_loss = layer_nll_loss * (1 - self.label_smoothing) - mean_ds(lprobs_layer) * self.label_smoothing
                 else:
                     layer_loss = layer_nll_loss
 
@@ -130,7 +130,7 @@ class UpsampleCTCLoss(FairseqCriterion):
             sample_size = 1
             logging_output = {
                 "loss": utils.item(loss.data),  # * sample['ntokens'],
-                "nll_loss": utils.item(nll_loss.data),
+                #"nll_loss": utils.item(nll_loss.data),
                 "ntokens": ntokens,
                 "nsentences": sample["id"].numel(),
                 "sample_size": sample_size,
