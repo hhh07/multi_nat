@@ -122,6 +122,7 @@ class UpsampleCTCLoss(FairseqCriterion):
                 all_layer_ctc_loss += layer_loss * factor
                 normalized_factor += factor
             avg_layer_ctc_loss = all_layer_ctc_loss / normalized_factor
+            loss = avg_layer_ctc_loss
 
             ntokens = (
                 sample["ntokens"] if "ntokens" in sample else target_lengths.sum().item()
@@ -136,7 +137,7 @@ class UpsampleCTCLoss(FairseqCriterion):
                 "sample_size": sample_size,
             }
 
-            return avg_layer_ctc_loss, sample_size, logging_output
+            return loss, sample_size, logging_output
         else:
             #net_output = model(src_tokens, src_lengths, prev_output_tokens, tgt_tokens)
             net_output, output_logits_list = model(src_tokens, src_lengths, prev_output_tokens, tgt_tokens)
