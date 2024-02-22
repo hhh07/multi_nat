@@ -67,8 +67,8 @@ class NAT_ctc_model(FairseqNATModel):
 
     def forward(self, src_tokens, src_lengths, prev_output_tokens, tgt_tokens):
         encoder_out = self.encoder(src_tokens, src_lengths)
-        output = self.decoder(encoder_out, prev_output_tokens, normalize=False)
-        return output
+        output, output_logits_list = self.decoder(encoder_out, prev_output_tokens, normalize=False)
+        return output, output_logits_list
 
     '''
     def initialize_output_tokens(self, encoder_out, src_tokens):
@@ -182,11 +182,12 @@ class NAT_ctc_model(FairseqNATModel):
         output_scores = decoder_out.output_scores
 
         if self.ctc_decode_with_beam > 1 or (self.ctc_decode_with_beam == 1 and self.use_ctc_bs):
-            log_probs = self.decoder(
+            output,_  = self.decoder(
                 encoder_out=encoder_out,
                 normalize=True,
                 prev_output_tokens=output_tokens,
-            ).transpose(0, 1)
+            )
+            log_probs = output.transpose(0, 1)
             output_masks = output_tokens.ne(self.pad)
             output_tokens, output_scores = self.ctc_beamsearch(
                 log_probs, output_masks, output_tokens, output_scores
@@ -328,6 +329,10 @@ class NAT_ctc_decoder(FairseqNATDecoder):
             )
         if not args.ctcdecoder_positional_embedding:
             self.embed_positions = None
+        # hzj dslp
+        self.reduce_concat = torch.nn.ModuleList(
+                    [torch.nn.Linear(self.args.decoder_embed_dim*2, self.args.decoder_embed_dim, bias=False)
+                                                          for _ in range(self.args.decoder_layers - 1)])
 
     def output_layer(self, features, **kwargs):
         """Project features to the vocabulary size."""
@@ -339,16 +344,25 @@ class NAT_ctc_decoder(FairseqNATDecoder):
         the prev_output_tokens only helps ctc decoder's positional embedding
         you can use it with setting args.ctcdecoder_positional_embeddings True.
         """
-        features, _ = self.extract_features(
-            encoder_out=encoder_out,
-            prev_output_tokens=prev_output_tokens
+        features , all_features = self.extract_features(
+            prev_output_tokens=prev_output_tokens,
+            encoder_out=encoder_out
         )
-        if features_only:  # used for mt_ctc_6_up_6
-            return features
+        all_layer_output_logits = all_features['all_layer_output_logits']
         decoder_out = self.output_layer(features)
-        return F.log_softmax(decoder_out, -1) if normalize else decoder_out
+        return F.log_softmax(decoder_out, -1) if normalize else decoder_out , [F.log_softmax(x, -1) if normalize else x
+                for x in all_layer_output_logits]
+        
+        # features, _ = self.extract_features(
+        #     encoder_out=encoder_out,
+        #     prev_output_tokens=prev_output_tokens
+        # )
+        # if features_only:  # used for mt_ctc_6_up_6
+        #     return features
+        # decoder_out = self.output_layer(features)
+        # return F.log_softmax(decoder_out, -1) if normalize else decoder_out
 
-    def extract_features(self, encoder_out, prev_output_tokens, incremental_state=None):
+    def extract_features(self, encoder_out, prev_output_tokens, incremental_state=None,early_exit=None):
         # embed positions
         positions = None
         if self.embed_positions is not None:
@@ -380,9 +394,59 @@ class NAT_ctc_decoder(FairseqNATDecoder):
         # decoder layers
         attn: Optional[Tensor] = None
         inner_states: List[Optional[Tensor]] = [x]
+
+        all_layer_output_logits = []
+
         for idx, layer in enumerate(self.layers):
+            layer_out_logits = self.output_layer(x)
+            #获得解析的单词的embedding  T x B x C
+            layer_out = self.embed_tokens(layer_out_logits.argmax(dim=-1))
+
+            if  idx == 0 :
+                new_x = x
+            else:
+                all_layer_output_logits.append(layer_out_logits)
+                #此处修改为 加mask的avg  用masked_avg_layer_out替换
+                # new_x = torch.cat((x, layer_out), dim=-1)
+                # new_x = self.reduce_concat[idx - 1](new_x)
+
+
+                #####计算mask_avg_layer_out
+                #矩阵计算方法 问题OOM
+                # T = layer_out.size()[0]
+                # # T x T x B x C
+                # layout_repeat= layer_out.unsqueeze(0).repeat(T,1,1,1)
+                # #下三角矩阵
+                # lower_triangular = torch.tril(torch.ones(T, T))
+                # # T x T x 1 x 1
+                # lower_triangular = lower_triangular.unsqueeze(-1).unsqueeze(-1)
+                # # T x T x B x C
+                # lower_triangular = lower_triangular.to(device="cuda")
+                # masked_layer_out = layout_repeat * lower_triangular
+                # # T x B x C 在第二维度（token维度求和）
+                # token_count = torch.arange(1, T + 1).unsqueeze(-1).unsqueeze(-1)
+                # token_count = token_count.to(device="cuda")
+                # avg_masked_layer_out = torch.sum(masked_layer_out,dim=1) / token_count
+
+                #for循环计算方法
+                T = layer_out.size()[0]
+                masked_layer_out = torch.zeros_like(layer_out)
+                temp = torch.zeros_like(layer_out[0])
+                for t in range(T):
+                    temp = temp + x[t]
+                    masked_layer_out[t] = temp
+                token_count = torch.arange(1, T + 1).unsqueeze(-1).unsqueeze(-1)
+                token_count = token_count.to(device="cuda")
+                avg_masked_layer_out = masked_layer_out / token_count
+
+
+                #线性层
+                new_x = torch.cat((x, avg_masked_layer_out), dim=-1)
+                new_x = new_x.half()
+                new_x = self.reduce_concat[idx - 1](new_x)
+
             x, layer_attn, _ = layer(
-                x,
+                new_x,
                 encoder_out["encoder_out"][0]
                 if (encoder_out is not None and len(encoder_out["encoder_out"]) > 0)
                 else None,
@@ -396,6 +460,10 @@ class NAT_ctc_decoder(FairseqNATDecoder):
                 self_attn_padding_mask=self_attn_padding_mask,
             )
             inner_states.append(x)
+        #hzj
+        #第六个是第六层线性层后加
+        # layernum x T x B x dict_size
+        all_layer_output_logits.append(self.output_layer(x))
         
 
         if self.layer_norm is not None:
@@ -404,7 +472,7 @@ class NAT_ctc_decoder(FairseqNATDecoder):
         if self.project_out_dim is not None:
             x = self.project_out_dim(x)
 
-        return x, {"attn": attn, "inner_states": inner_states}
+        return x, {"attn": attn, "inner_states": inner_states,"all_layer_output_logits": all_layer_output_logits}
 
 
 @register_model_architecture("nat_ctc", "nat_ctc")

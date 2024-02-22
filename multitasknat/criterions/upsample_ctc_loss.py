@@ -21,6 +21,12 @@ class MyCtcCriterionConfig(FairseqDataclass):
             "help": "epsilon for label smoothing, 0 means no label smoothing",
         },
     )
+    is_ds_loss: bool = field(
+        default=False,
+        metadata={
+            "help": "calculate ds loss",
+        },
+    )
 
 
 @register_criterion("upsample_ctc_loss", dataclass=MyCtcCriterionConfig)
@@ -29,6 +35,7 @@ class UpsampleCTCLoss(FairseqCriterion):
         super().__init__(task)
         self.upsample_scale = cfg.upsample_scale
         self.label_smoothing = cfg.label_smoothing
+        self.is_ds_loss = cfg.is_ds_loss
         self.blank_idx = task.target_dictionary.blank_index
         self.pad_idx = task.target_dictionary.pad()
         self.eos_idx = task.target_dictionary.eos()
@@ -47,52 +54,137 @@ class UpsampleCTCLoss(FairseqCriterion):
             sample["net_input"]["src_lengths"],
         )
         tgt_tokens, prev_output_tokens = sample["target"], sample["prev_target"]
-        net_output = model(src_tokens, src_lengths, prev_output_tokens, tgt_tokens)
-        lprobs = model.get_normalized_probs(
-            net_output, log_probs=True
-        ).contiguous()  # (T, B, C) from the decoder
+       
+       
+        #dslp
+        if self.is_ds_loss:
+            net_output, output_logits_list = model(src_tokens, src_lengths, prev_output_tokens, tgt_tokens)
+            
+            input_lengths = src_lengths * self.upsample_scale
 
-        input_lengths = src_lengths * self.upsample_scale
+            pad_mask = (sample["target"] != self.pad_idx) & (
+                    sample["target"] != self.eos_idx
+            )
+            targets_flat = sample["target"].masked_select(pad_mask)
+            if "target_lengths" in sample:
+                target_lengths = sample["target_lengths"]
+            else:
+                target_lengths = pad_mask.sum(-1)
 
-        pad_mask = (sample["target"] != self.pad_idx) & (
-                sample["target"] != self.eos_idx
-        )
-        targets_flat = sample["target"].masked_select(pad_mask)
-        if "target_lengths" in sample:
-            target_lengths = sample["target_lengths"]
-        else:
-            target_lengths = pad_mask.sum(-1)
 
-        with torch.backends.cudnn.flags(enabled=False):
-            nll_loss = F.ctc_loss(
-                lprobs.float(),  # to fix with fp16
-                targets_flat,
-                input_lengths,
-                target_lengths,
-                blank=self.blank_idx,
-                reduction="mean",
-                zero_infinity=self.zero_infinity,
+            #本来的loss
+            # lprobs = model.get_normalized_probs(
+            #     net_output, log_probs=True
+            # ).contiguous()  # (T, B, C) from the decoder
+
+            # with torch.backends.cudnn.flags(enabled=False):
+            #     nll_loss = F.ctc_loss(
+            #         lprobs.float(),  # to fix with fp16
+            #         targets_flat,
+            #         input_lengths,
+            #         target_lengths,
+            #         blank=self.blank_idx,
+            #         reduction="mean",
+            #         zero_infinity=self.zero_infinity,
+            #     )
+            # if self.label_smoothing > 0:
+            #     loss = nll_loss * (1 - self.label_smoothing) - mean_ds(lprobs) * self.label_smoothing
+            # else:
+            #     loss = nll_loss
+            
+            
+            #dslp loss
+            all_layer_ctc_loss = 0
+            normalized_factor = 0
+
+            for layer_idx, word_ins_out in enumerate(output_logits_list):
+                lprobs_layer = model.get_normalized_probs(
+                    word_ins_out, log_probs=True
+                ).contiguous()  # (T, B, C) from the decoder
+
+                with torch.backends.cudnn.flags(enabled=False):
+                    layer_nll_loss = F.ctc_loss(
+                        lprobs_layer.float(),  # to fix with fp16
+                        targets_flat,
+                        input_lengths,
+                        target_lengths,
+                        blank=self.blank_idx,
+                        reduction="mean",
+                        zero_infinity=self.zero_infinity,
+                    )
+
+                if self.label_smoothing > 0:
+                    layer_loss = layer_nll_loss * (1 - self.label_smoothing) - mean_ds(lprobs) * self.label_smoothing
+                else:
+                    layer_loss = layer_nll_loss
+
+                factor = 1  # math.sqrt(layer_idx + 1)
+                all_layer_ctc_loss += layer_loss * factor
+                normalized_factor += factor
+            avg_layer_ctc_loss = all_layer_ctc_loss / normalized_factor
+
+            ntokens = (
+                sample["ntokens"] if "ntokens" in sample else target_lengths.sum().item()
             )
 
-        if self.label_smoothing > 0:
-            loss = nll_loss * (1 - self.label_smoothing) - mean_ds(lprobs) * self.label_smoothing
+            sample_size = 1
+            logging_output = {
+                "loss": utils.item(loss.data),  # * sample['ntokens'],
+                "nll_loss": utils.item(nll_loss.data),
+                "ntokens": ntokens,
+                "nsentences": sample["id"].numel(),
+                "sample_size": sample_size,
+            }
+
+            return avg_layer_ctc_loss, sample_size, logging_output
         else:
-            loss = nll_loss
+            #net_output = model(src_tokens, src_lengths, prev_output_tokens, tgt_tokens)
+            net_output, output_logits_list = model(src_tokens, src_lengths, prev_output_tokens, tgt_tokens)
+            lprobs = model.get_normalized_probs(
+                net_output, log_probs=True
+            ).contiguous()  # (T, B, C) from the decoder
 
-        ntokens = (
-            sample["ntokens"] if "ntokens" in sample else target_lengths.sum().item()
-        )
+            input_lengths = src_lengths * self.upsample_scale
 
-        sample_size = 1
-        logging_output = {
-            "loss": utils.item(loss.data),  # * sample['ntokens'],
-            "nll_loss": utils.item(nll_loss.data),
-            "ntokens": ntokens,
-            "nsentences": sample["id"].numel(),
-            "sample_size": sample_size,
-        }
+            pad_mask = (sample["target"] != self.pad_idx) & (
+                    sample["target"] != self.eos_idx
+            )
+            targets_flat = sample["target"].masked_select(pad_mask)
+            if "target_lengths" in sample:
+                target_lengths = sample["target_lengths"]
+            else:
+                target_lengths = pad_mask.sum(-1)
 
-        return loss, sample_size, logging_output
+            with torch.backends.cudnn.flags(enabled=False):
+                nll_loss = F.ctc_loss(
+                    lprobs.float(),  # to fix with fp16
+                    targets_flat,
+                    input_lengths,
+                    target_lengths,
+                    blank=self.blank_idx,
+                    reduction="mean",
+                    zero_infinity=self.zero_infinity,
+                )
+
+            if self.label_smoothing > 0:
+                loss = nll_loss * (1 - self.label_smoothing) - mean_ds(lprobs) * self.label_smoothing
+            else:
+                loss = nll_loss
+
+            ntokens = (
+                sample["ntokens"] if "ntokens" in sample else target_lengths.sum().item()
+            )
+
+            sample_size = 1
+            logging_output = {
+                "loss": utils.item(loss.data),  # * sample['ntokens'],
+                "nll_loss": utils.item(nll_loss.data),
+                "ntokens": ntokens,
+                "nsentences": sample["id"].numel(),
+                "sample_size": sample_size,
+            }
+
+            return loss, sample_size, logging_output
 
     @staticmethod
     def reduce_metrics(logging_outputs) -> None:
