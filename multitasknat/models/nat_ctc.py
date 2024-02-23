@@ -194,11 +194,12 @@ class NAT_ctc_model(FairseqNATModel):
             )
         else:
             # greedy decoding
-            _scores, _tokens = self.decoder(
+            output,_= self.decoder(
                 encoder_out=encoder_out,
                 prev_output_tokens=output_tokens,
                 normalize=True
-            ).transpose(0, 1).max(-1)
+            )
+            _scores, _tokens = output.transpose(0, 1).max(-1)
             output_masks = output_tokens.ne(self.pad)
             output_tokens.masked_scatter_(output_masks, _tokens[output_masks])
             output_scores.masked_scatter_(output_masks, _scores[output_masks])
