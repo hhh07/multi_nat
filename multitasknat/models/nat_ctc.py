@@ -50,6 +50,14 @@ class NAT_ctc_model(FairseqNATModel):
                             help='if set, ables ctc decoder\'s positional embeddings (outside self attention)')
         parser.add_argument("--share-all-nat-dec-layer", default=False, action='store_true',
                             help='if set, the model will work on ctc-loss.')
+        parser.add_argument(
+            "--curriculum-type",
+            type=str,
+            default="nat",
+            help="at_forward or at_backward or nat",
+        )
+        parser.add_argument("--is-lp", default=False, action='store_true',
+                            help='if set, the model will work on lp.')
 
     @classmethod
     def build_encoder(cls, args, src_dict, encoder_embed_tokens):
@@ -65,7 +73,26 @@ class NAT_ctc_model(FairseqNATModel):
         """
         return NAT_ctc_decoder(args, tgt_dict, embed_tokens)
 
-    def forward(self, src_tokens, src_lengths, prev_output_tokens, tgt_tokens):
+    def forward(self, src_tokens, src_lengths, prev_output_tokens, tgt_tokens,at_prev_output_tokens=None,**kwargs):
+        #ctc的长度是src*2，与tgt无关
+        # if hasattr(self.args, 'curriculum_type') and self.args.curriculum_type != 'nat':
+        #     prev_output_tokens = at_prev_output_tokens
+        if hasattr(self.args, 'curriculum_type') and self.args.curriculum_type == 'at_backward':
+            #prev_output_tokens = at_prev_output_tokens
+            tmp_tgt_tokens = tgt_tokens.clone()
+            tmp_prev_output_tokens = prev_output_tokens.clone()
+            nonpad_num = tmp_tgt_tokens.ne(self.pad).sum(1)
+            tmp_a = nonpad_num.repeat(max(nonpad_num),1).transpose(0,1)
+            tmp_b = (torch.arange(max(nonpad_num))).unsqueeze(0).repeat(nonpad_num.size(0),1).cuda()
+            tmp_index = tmp_a - tmp_b - 1
+            mask = tmp_index.lt(0)
+            tmp_index=tmp_index.masked_fill(mask, max(nonpad_num)-1)
+            tgt_tokens = torch.gather(tmp_tgt_tokens, 1, tmp_index)
+            # 正确反向target： C B A [EOS]
+            # if hasattr(self.args, 'right_type') and self.args.right_type == 'first':
+            #     tmp_prev_output_tokens = torch.gather(tmp_prev_output_tokens, 1, tmp_index)
+            #     # for second decoding to update
+            #     tgt_tokens = tmp_prev_output_tokens
         encoder_out = self.encoder(src_tokens, src_lengths)
         output, output_logits_list = self.decoder(encoder_out, prev_output_tokens, normalize=False)
         return output, output_logits_list
@@ -375,6 +402,19 @@ class NAT_ctc_decoder(FairseqNATDecoder):
         x = encoder_out["upsample_x"]  # B x self.scale*T x C
         self_attn_padding_mask = encoder_out["upsample_mask"]
 
+        #fbd         #把x的内容反转了
+        src_embd = x
+        src_mask = self_attn_padding_mask
+        if hasattr(self.args, 'curriculum_type') and self.args.curriculum_type == 'at_backward':
+                tmp_prev_output_tokens = prev_output_tokens.clone()
+                nonpad_num = tmp_prev_output_tokens.ne(self.padding_idx).sum(1)
+                tmp_a = nonpad_num.repeat(max(nonpad_num), 1).transpose(0, 1)
+                tmp_b = (torch.arange(max(nonpad_num))).unsqueeze(0).repeat(nonpad_num.size(0), 1).cuda()
+                tmp_index = tmp_a - tmp_b - 1
+                mask = tmp_index.lt(0)
+                tmp_index = tmp_index.masked_fill(mask, max(nonpad_num) - 1)
+                x = torch.gather(x, 1, tmp_index.unsqueeze(-1).repeat(1, 1, x.size(2)))
+
         if self.quant_noise is not None:
             x = self.quant_noise(x)
 
@@ -403,7 +443,7 @@ class NAT_ctc_decoder(FairseqNATDecoder):
             #获得解析的单词的embedding  T x B x C
             layer_out = self.embed_tokens(layer_out_logits.argmax(dim=-1))
 
-            if  idx == 0 :
+            if  idx == 0 or (not getattr(self.args, "is_lp", False)) :
                 new_x = x
             else:
                 all_layer_output_logits.append(layer_out_logits)
@@ -446,6 +486,12 @@ class NAT_ctc_decoder(FairseqNATDecoder):
                 new_x = new_x.half()
                 new_x = self.reduce_concat[idx - 1](new_x)
 
+            #fbd
+            if hasattr(self.args, 'curriculum_type') and self.args.curriculum_type!='nat':
+                self_attn_mask=self.buffered_future_mask(x)
+            else:
+                self_attn_mask=None
+            
             x, layer_attn, _ = layer(
                 new_x,
                 encoder_out["encoder_out"][0]
@@ -457,7 +503,7 @@ class NAT_ctc_decoder(FairseqNATDecoder):
                         and len(encoder_out["encoder_padding_mask"]) > 0
                 )
                 else None,
-                self_attn_mask=None,
+                self_attn_mask=self_attn_mask,
                 self_attn_padding_mask=self_attn_padding_mask,
             )
             inner_states.append(x)

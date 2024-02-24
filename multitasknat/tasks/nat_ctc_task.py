@@ -97,12 +97,29 @@ class NATCTC_Task(TranslationLevenshteinTask):
         if self.cfg.upsample_strict: return strict(src_tokens, src_lengths)
         else: return normal(src_tokens, self.cfg.upsample_scale, self.src_dict)
 
+    def normal2(self, src_tokens, scale, src_dict):
+                pad = src_dict.pad()
+                bos = src_dict.bos()
+                eos = src_dict.eos()
+                unk = src_dict.unk()
+
+                #不把其他元素置为unk？
+                _mask = (
+                        src_tokens.eq(bos) | src_tokens.eq(eos) | src_tokens.eq(pad)
+                )
+                src_tokens = src_tokens.masked_fill(~_mask, unk)
+                bsz = src_tokens.size(0)
+                upsample_src_tokens = src_tokens.unsqueeze(-1).expand(bsz, -1, scale).reshape(bsz, -1)
+                return upsample_src_tokens
     def train_step(
         self, sample, model, criterion, optimizer, update_num, ignore_grad=False, **kwargs
     ):
         model.train()
         upsample_src_tokens = self.get_upsample_src_tokens(model, sample)
         sample["prev_target"] = upsample_src_tokens
+        # at_prev_output_tokens = sample["net_input"]["prev_output_tokens"]
+        # at_prev_output_tokens = self.normal2(at_prev_output_tokens, self.cfg.upsample_scale, self.src_dict)
+        # sample["net_input"]["prev_output_tokens"] = at_prev_output_tokens
         loss, sample_size, logging_output = criterion(model, sample)
         if ignore_grad:
             loss *= 0
