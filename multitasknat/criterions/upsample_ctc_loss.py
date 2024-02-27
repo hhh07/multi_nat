@@ -48,8 +48,8 @@ class UpsampleCTCLoss(FairseqCriterion):
         )
         tgt_tokens, prev_output_tokens = sample["target"], sample["prev_target"]
         #2024temp
-        #net_output = model(src_tokens, src_lengths, prev_output_tokens, tgt_tokens, src_dep_dist = sample["net_input"]["src_dep_dist"])
-        net_output = model(src_tokens, src_lengths, prev_output_tokens, tgt_tokens)
+        net_output = model(src_tokens, src_lengths, prev_output_tokens, tgt_tokens, src_dep_dist = sample["net_input"]["src_dep_dist"])
+        #net_output = model(src_tokens, src_lengths, prev_output_tokens, tgt_tokens)
         lprobs = model.get_normalized_probs(
             net_output, log_probs=True
         ).contiguous()  # (T, B, C) from the decoder

@@ -14,7 +14,7 @@ from typing import Optional
 
 logger = logging.getLogger(__name__)
 
-SIGMA = 0.7
+SIGMA = 1 #0.75
 VAR_TIMES_2 = torch.tensor(2 * SIGMA ** 2)
 
 def collate(

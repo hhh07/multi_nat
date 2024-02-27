@@ -14,6 +14,7 @@ from fairseq.modules.fairseq_dropout import FairseqDropout
 from fairseq.modules.quant_noise import quant_noise
 from torch import Tensor, nn
 from torch.nn import Parameter
+import logging
 
 
 @with_incremental_state
@@ -333,6 +334,7 @@ class MultiheadAttention(nn.Module):
         # yzh dep
         # 问题：dep_dist和句子的长度不一样
         if dep_heads > 0:
+            #logging.info("use self-attention enhance")
             dep_dist_expand = dep_dist.repeat(1, dep_heads, 1).view(-1, dep_dist.size(1), dep_dist.size(1))
             if self.training and dep_dist_drop > 0.:
                 samples = torch.distributions.binomial.Binomial(probs=1-dep_dist_drop) \

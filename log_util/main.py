@@ -68,7 +68,7 @@ def parse_multi_log(log_dir_path_list_str:str):
         x_epoch = sorted(fairser_log_entity.valid_info_dict.keys())
         y_valid_bleu = [fairser_log_entity.valid_info_dict[epoch].bleu for epoch in x_epoch]
         plt.plot(x_epoch, y_valid_bleu, label=f"Valid Bleu: {path.split('/')[-1]}")
-        plt.ylim(20, 36)
+        plt.ylim(25, 36)
         plt.xlim(0, 500)
 
     plt.xlabel("Epochs")
