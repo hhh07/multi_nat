@@ -356,7 +356,7 @@ def collate(
         #batch_lable = 
         if batch_dep is not None:
             batch["net_input"]["src_dep"] = batch_dep
-            batch["net_input"]["src_dep_dist"] = _calc_batch_dep_dist(batch_dep)
+            batch["net_input"]["src_dep_dist"] = _calc_batch_dep_dist_binary(batch_dep)
 
     if samples[0].get("tgt_dep", None) is not None:
         batch_dep = _get_batch_dep(samples, batch["target"], tgt_lengths, sort_order, "tgt_dep",
