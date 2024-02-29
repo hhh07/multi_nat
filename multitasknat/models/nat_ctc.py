@@ -266,6 +266,11 @@ class NAT_ctc_encoder(FairseqNATEncoder):
         self.enc_dep_heads_list = [int(x) if x else 0 for x in args.enc_dep_heads.split(",")]
         if len(self.enc_dep_heads_list) < args.encoder_layers:
             self.enc_dep_heads_list.extend([0] * (args.encoder_layers - len(self.enc_dep_heads_list)))
+        # sman 是否建立sman的atten层
+        if args.enc_sman_attn_layers:
+            enc_sman_attn_layers = [int(i) for i in args.enc_sman_attn_layers.split(",") if (self.num_layers > int(i) >= 0)]
+            for i in set(enc_sman_attn_layers):
+                self.layers[i].add_sman_attn(args, sman_mode=args.sman_mode, sman_width=args.sman_width)
 
     def forward(self, src_tokens, src_lengths, token_embeddings: Optional[torch.Tensor] = None, **kwargs):
         # compute padding mask

@@ -37,7 +37,7 @@ class FairseqLogEntity(object):
     @classmethod
     def get_instance_by_folder(cls, dir_path: str) -> 'FairseqLogEntity':
         if not os.path.exists(dir_path):
-            raise FileNotFoundError("无此文件夹")
+            raise FileNotFoundError(f"无此文件夹: {dir_path}")
         train_log_path = os.path.join(dir_path, FairseqLogEntity.TRAIN_LOG_FILE_NAME)
         result_gen_path = os.path.join(dir_path, FairseqLogEntity.RESULT_GEN_FILE_NAME)
 

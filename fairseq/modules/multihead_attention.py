@@ -127,6 +127,7 @@ class MultiheadAttention(nn.Module):
         dep_dist:Tensor=None,
         dep_dist_drop: float=0.0,
         dep_heads: int=0,
+        sman_attn_mask: Optional[Tensor] = None,
     ) -> Tuple[Tensor, Optional[Tensor]]:
         """Input shape: Time x Batch x Channel
 
@@ -163,6 +164,8 @@ class MultiheadAttention(nn.Module):
             # treats bias in linear module as method.
             and not torch.jit.is_scripting()
             and dep_dist is  None
+            and sman_attn_mask is None
+
         ):
             assert key is not None and value is not None
             return F.multi_head_attention_forward(
@@ -363,6 +366,10 @@ class MultiheadAttention(nn.Module):
                 attn_weights = attn_weights.masked_fill(key_padding_mask, float("-inf"))
                 attn_weights = attn_weights.transpose(0, 2)
             attn_weights = attn_weights.view(bsz * self.num_heads, tgt_len, src_len)
+
+        if sman_attn_mask is not None:
+            multi_head_dp_attn_mask = torch.cat([sman_attn_mask] * self.num_heads, dim=0).float().to(attn_weights.device)
+            attn_weights *= multi_head_dp_attn_mask
 
         if before_softmax:
             return attn_weights, v

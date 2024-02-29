@@ -287,7 +287,21 @@ def collate(
                     batch_dependency.append(dependency)
 
         return torch.stack(batch_dependency, dim=0) if len(batch_dependency) > 0 else None
+    #sman_mask
+    def _calc_batch_sman_mask(batch_dep):
+        batch_size, seq_size = batch_dep.shape
+        #创建mask矩阵
+        indices = torch.arange(seq_size).unsqueeze(1)  # 形状为 (D, 1)
+        # 计算绝对值差值矩阵
+        abs_diff = torch.abs(indices - indices.t())  # 形状为 (D, D)
+        
+        # 利用逻辑运算设置满足条件的元素为1
+        mask = (abs_diff <= 4).float()
+        
 
+        return mask
+    
+    
     #根据距离生成dist，生成dist包括了掩码-1的部分，感觉不对劲
     #待修改：应该先生成dist，再加上掩码的部分，掩码部分不参加dist的计算?不然算的不是dist。但是还有问题，
     def _calc_batch_dep_dist(batch_dep):
@@ -338,6 +352,8 @@ def collate(
     if samples[0].get("src_dep", None) is not None:
         batch_dep = _get_batch_dep(samples, batch["net_input"]["src_tokens"], src_lengths, sort_order, "src_dep",
                                    left_pad_source, pad_dep)
+        #batch_lable
+        #batch_lable = 
         if batch_dep is not None:
             batch["net_input"]["src_dep"] = batch_dep
             batch["net_input"]["src_dep_dist"] = _calc_batch_dep_dist(batch_dep)

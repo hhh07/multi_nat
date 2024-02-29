@@ -2,7 +2,7 @@
 #
 # This source code is licensed under the MIT license found in the
 # LICENSE file in the root directory of this source tree.
-
+import math
 from typing import Dict, List, Optional
 
 import torch
@@ -65,6 +65,23 @@ class TransformerEncoderLayer(nn.Module):
         )
 
         self.final_layer_norm = LayerNorm(self.embed_dim)
+
+        self.sman_attn = None
+        self.sman_attn_layer_norm = None
+        self.sman_linear = None
+        self.sman_mode: int = 1
+        self.sman_width: float = 4.
+
+    def add_sman_attn(self, cfg, sman_mode: int = 1, sman_width: float = 4.):
+        self.sman_attn = self.build_self_attention(self.embed_dim, cfg)
+        self.sman_attn_layer_norm = LayerNorm(self.embed_dim)
+        self.sman_mode = sman_mode
+        self.sman_width = sman_width
+        if sman_mode in [4, 5, -4, -5]:  # 需要sman linear层时才初始化该参数
+            self.sman_linear = quant_noise(
+                nn.Linear(2 * self.embed_dim, self.embed_dim),
+                p=self.quant_noise, block_size=self.quant_noise_block_size
+            )  # (2*C, C)
 
     def build_fc1(self, input_dim, output_dim, q_noise, qn_block_size):
         return quant_noise(
@@ -130,6 +147,32 @@ class TransformerEncoderLayer(nn.Module):
         if attn_mask is not None:
             attn_mask = attn_mask.masked_fill(attn_mask.to(torch.bool), -1e8)
 
+        if self.sman_attn is not None:
+            return self.forward_sman(x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, **kwargs)
+
+        if self.sman_attn is not None:
+            sman_attn_mask = self._get_sman_mask(x)
+            sman_attn_mask_clone = sman_attn_mask.clone()
+            sman_attn_mask_clone += ((sman_attn_mask == 0) * 1e-9)
+
+            residual = x
+            if self.normalize_before:
+                x = self.sman_attn_layer_norm(x)
+            x, attention_weights = self.sman_attn(
+                query=x,
+                key=x,
+                value=x,
+                key_padding_mask=encoder_padding_mask,
+                need_weights=False,
+                attn_mask=attn_mask,
+                sman_attn_mask=sman_attn_mask_clone,
+            )
+            x = self.dropout_module(x)
+            x = self.residual_connection(x, residual)
+            if not self.normalize_before:
+                x = self.sman_attn_layer_norm(x)
+        
+        
         residual = x
         if self.normalize_before:
             x = self.self_attn_layer_norm(x)
@@ -159,6 +202,151 @@ class TransformerEncoderLayer(nn.Module):
         x = self.residual_connection(x, residual)
         if not self.normalize_before:
             x = self.final_layer_norm(x)
+        return x
+
+    # 【所有相关代码均尚未调试过！！！】
+    def forward_sman(self, x, encoder_padding_mask: Optional[Tensor], attn_mask: Optional[Tensor] = None,
+                 dep_dist_drop: float = 0.0, dep_heads: int = 0, **kwargs):
+        if attn_mask is not None:
+            attn_mask = attn_mask.masked_fill(attn_mask.to(torch.bool), -1e8)
+
+        if self.sman_attn is None:  # SA -> FFN
+            x = self._sa(x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, **kwargs)
+            x = self._ffn(x)
+            
+        else:
+            if self.sman_mode == 0:  # 替换SA: SMAN -> FFN
+                x = self._sman(x, encoder_padding_mask, attn_mask)
+                x = self._ffn(x)
+
+            elif self.sman_mode == 1:  # SMAN -> SA -> FFN (默认sman mode)
+                x = self._sman(x, encoder_padding_mask, attn_mask)
+                x = self._sa(x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, **kwargs)
+                x = self._ffn(x)
+            elif self.sman_mode == 2:  # SA -> SMAN -> FFN
+                x = self._sa(x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, **kwargs)
+                x = self._sman(x, encoder_padding_mask, attn_mask)
+                x = self._ffn(x)
+            elif self.sman_mode == 3:  # SA -> FFN -> SMAN
+                x = self._sa(x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, **kwargs)
+                x = self._ffn(x)
+                x = self._sman(x, encoder_padding_mask, attn_mask)
+            elif self.sman_mode == 4:  # [SMAN; SA -> FFN]
+                x1 = self._sman(x, encoder_padding_mask, attn_mask)
+                x2 = self._sa(x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, **kwargs)
+                x2 = self._ffn(x2)
+                x = self._sman_ll(x1, x2)
+            elif self.sman_mode == 5:  # [SMAN; SA] -> FFN
+                x1 = self._sman(x, encoder_padding_mask, attn_mask)
+                x2 = self._sa(x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, **kwargs)
+                x = self._sman_ll(x1, x2)
+                x = self._ffn(x)
+
+            elif self.sman_mode == -1 or self.sman_mode == -2:  # 消融：SA -> SA -> FFN
+                x = self._sa(x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, **kwargs)
+                x = self._sa(x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, **kwargs)
+                x = self._ffn(x)
+            elif self.sman_mode == -3: # 消融：SA -> FFN -> SA
+                x = self._sa(x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, **kwargs)
+                x = self._sa(x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, **kwargs)
+                x = self._ffn(x)
+            elif self.sman_mode == -4:  # 消融：[SA; SA -> FFN]
+                x1 = self._sa(x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, **kwargs)
+                x2 = self._sa(x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, **kwargs)
+                x2 = self._ffn(x2)
+                x = self._sman_ll(x1, x2)
+            elif self.sman_mode == -5:  # 消融：[SA; SA] -> FFN
+                x1 = self._sa(x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, **kwargs)
+                x2 = self._sa(x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, **kwargs)
+                x = self._sman_ll(x1, x2)
+                x = self._ffn(x)
+
+            else:
+                raise NotImplementedError(f"sman mode值对应的架构尚未实现: {self.sman_mode}")
+
+        return x
+
+    def _get_sman_mask(self, x):
+        seq_size, batch, embed_dim = x.shape
+        indices = torch.arange(seq_size).unsqueeze(1)
+        abs_diff = torch.abs(indices - indices.t())
+        
+        assert self.sman_width != 0, f"sman width值指定错误: {self.sman_width}"
+        if self.sman_width > 0.:
+            width = self.sman_width
+        elif self.sman_width < 0.:
+            assert seq_size > 0, f"seq_size must >0, but now it is {seq_size}"
+            width = math.sqrt(seq_size) / math.fabs(self.sman_width)  # √(L) / |w|
+
+        mask = (abs_diff <= width).float()
+        mask = mask.unsqueeze(0).expand(batch, -1, -1)
+
+        return mask
+
+    def _sa(self, x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, **kwargs):
+        residual = x
+        if self.normalize_before:
+            x = self.self_attn_layer_norm(x)
+        x, _ = self.self_attn(
+            query=x,
+            key=x,
+            value=x,
+            key_padding_mask=encoder_padding_mask,
+            need_weights=False,
+            attn_mask=attn_mask,
+            dep_dist=kwargs["src_dep_dist"] if "src_dep_dist" in kwargs.keys() else None,
+            dep_dist_drop=dep_dist_drop,
+            dep_heads=dep_heads,
+        )
+        x = self.dropout_module(x)
+        x = self.residual_connection(x, residual)
+        if not self.normalize_before:
+            x = self.self_attn_layer_norm(x)
+        return x
+
+    def _ffn(self, x):
+        residual = x
+        if self.normalize_before:
+            x = self.final_layer_norm(x)
+        x = self.activation_fn(self.fc1(x))
+        x = self.activation_dropout_module(x)
+        x = self.fc2(x)
+        x = self.dropout_module(x)
+        x = self.residual_connection(x, residual)
+        if not self.normalize_before:
+            x = self.final_layer_norm(x)
+        return x
+
+    def _sman(self, x, encoder_padding_mask, attn_mask):
+        sman_attn_mask = self._get_sman_mask(x)
+        sman_attn_mask_clone = sman_attn_mask.clone()
+        sman_attn_mask_clone += ((sman_attn_mask == 0) * 1e-9)
+
+        residual = x
+        if self.normalize_before:
+            x = self.sman_attn_layer_norm(x)
+        x, attention_weights = self.sman_attn(
+            query=x,
+            key=x,
+            value=x,
+            key_padding_mask=encoder_padding_mask,
+            need_weights=False,
+            attn_mask=attn_mask,
+            sman_attn_mask=sman_attn_mask_clone,
+        )
+        x = self.dropout_module(x)
+        x = self.residual_connection(x, residual)
+        if not self.normalize_before:
+            x = self.sman_attn_layer_norm(x)
+        return x
+
+    def _sman_ll(self, x1, x2):
+        """
+        [(T, B, C); (T, B, C)] -> (T, B, C)
+        """
+        assert self.sman_linear is not None, f"sman linear未初始化，可能是sman mode值指定错误: {self.sman_mode}，请检查源码"
+        x = torch.cat((x1, x2), dim=-1)  # (T, B, 2*C)
+        x = self.sman_linear(x)  # (T, B, C)
         return x
 
 

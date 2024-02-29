@@ -2,12 +2,26 @@ import argparse
 import time
 
 import matplotlib.pyplot as plt
+import matplotlib.colors as mcolors
 from typing import List
 
 from entity.FairseqLogEntity import FairseqLogEntity
 
 
-def parse_single_log(log_dir_path: str):
+def _lighten_color(color, amount=0.25):
+    """
+    将颜色变浅
+    :param color: 要变浅的颜色
+    :param amount: 变浅的程度，取值范围为 0~1，0 表示不变，1 表示完全变白，默认为 0.25
+    :return: 变浅后的颜色
+    """
+    rgb = mcolors.colorConverter.to_rgb(color)
+    new_rgb = [min(1, c + amount) for c in rgb]
+    new_color = mcolors.rgb2hex(new_rgb)
+    return new_color
+
+
+def parse_single_log(log_dir_path: str, args):
     # 生成日志实体
     fairser_log_entity = FairseqLogEntity.get_instance_by_folder(log_dir_path)
 
@@ -52,7 +66,7 @@ def parse_single_log(log_dir_path: str):
     plt.savefig(png_save_dir)
 
 
-def parse_multi_log(log_dir_path_list_str:str):
+def parse_multi_log(log_dir_path_list_str:str, args):
     # 生成日志实体
     fairser_log_entity_dict = dict()
     log_dir_path_list = log_dir_path_list_str.split(',')
@@ -64,12 +78,33 @@ def parse_multi_log(log_dir_path_list_str:str):
 
     # 第一个子图，放Bleu Score曲线
     plt.subplot(1, 2, 1)
+    
+    first_dir_max_x = -1
     for path, fairser_log_entity in fairser_log_entity_dict.items():
         x_epoch = sorted(fairser_log_entity.valid_info_dict.keys())
         y_valid_bleu = [fairser_log_entity.valid_info_dict[epoch].bleu for epoch in x_epoch]
         plt.plot(x_epoch, y_valid_bleu, label=f"Valid Bleu: {path.split('/')[-1]}")
-        plt.ylim(25, 36)
-        plt.xlim(0, 500)
+
+        if args.show_extra_info:
+            max_y = max(y_valid_bleu)
+            max_y_color = plt.gca().lines[-1].get_color()
+            plt.axhline(max_y, color=max_y_color, linestyle='dashed')
+            plt.text(-0.1, max_y, str(max_y), color=max_y_color, ha='right', va='center')
+
+            first_dir_color = plt.gca().lines[0].get_color()
+            if first_dir_max_x == -1:
+                first_dir_max_x = max(x_epoch)
+                plt.axvline(first_dir_max_x, color=_lighten_color(first_dir_color), linestyle='dashed')
+            else:
+                max_y_in_first_dir_epoch = max([fairser_log_entity.valid_info_dict[epoch].bleu for epoch in x_epoch if epoch <= first_dir_max_x])
+                plt.axhline(max_y_in_first_dir_epoch, color=_lighten_color(max_y_color), linestyle='dashed')
+                plt.text(-0.1, max_y_in_first_dir_epoch, str(max_y_in_first_dir_epoch), color=_lighten_color(max_y_color), ha='right', va='center')
+
+
+        if args.y_min >= 0:
+            plt.ylim(args.y_min, args.y_max)
+        if args.x_min >= 0:
+            plt.xlim(args.x_min, args.x_max)
 
     plt.xlabel("Epochs")
     plt.ylabel("Bleu Score")
@@ -100,14 +135,19 @@ def parse_multi_log(log_dir_path_list_str:str):
 
 def main(args):
     if args.model_dir:
-        parse_single_log(args.model_dir)
+        parse_single_log(args.model_dir, args)
     if args.model_dir_list:
-        parse_multi_log(args.model_dir_list)
+        parse_multi_log(args.model_dir_list, args)
 
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--model-dir", default="", type=str)
     parser.add_argument("--model-dir-list", default="", type=str)
+    parser.add_argument("--x-min", default=-1, type=float)
+    parser.add_argument("--x-max", default=300, type=float)
+    parser.add_argument("--y-min", default=-1, type=float)
+    parser.add_argument("--y-max", default=37, type=float)
+    parser.add_argument("--show-extra-info", action="store_true")
 
     main(parser.parse_args())

@@ -21,6 +21,12 @@ class MyCtcCriterionConfig(FairseqDataclass):
             "help": "epsilon for label smoothing, 0 means no label smoothing",
         },
     )
+    enhance_dp: bool = field(
+        default=False,
+        metadata={
+            "help": "use enhance or not ",
+        },
+    )
 
 
 @register_criterion("upsample_ctc_loss", dataclass=MyCtcCriterionConfig)
@@ -29,6 +35,7 @@ class UpsampleCTCLoss(FairseqCriterion):
         super().__init__(task)
         self.upsample_scale = cfg.upsample_scale
         self.label_smoothing = cfg.label_smoothing
+        self.enhance_dp = cfg.enhance_dp
         self.blank_idx = task.target_dictionary.blank_index
         self.pad_idx = task.target_dictionary.pad()
         self.eos_idx = task.target_dictionary.eos()
@@ -48,8 +55,10 @@ class UpsampleCTCLoss(FairseqCriterion):
         )
         tgt_tokens, prev_output_tokens = sample["target"], sample["prev_target"]
         #2024temp
-        net_output = model(src_tokens, src_lengths, prev_output_tokens, tgt_tokens, src_dep_dist = sample["net_input"]["src_dep_dist"])
-        #net_output = model(src_tokens, src_lengths, prev_output_tokens, tgt_tokens)
+        if(self.enhance_dp):
+            net_output = model(src_tokens, src_lengths, prev_output_tokens, tgt_tokens, src_dep_dist = sample["net_input"]["src_dep_dist"])
+        else:
+            net_output = model(src_tokens, src_lengths, prev_output_tokens, tgt_tokens)
         lprobs = model.get_normalized_probs(
             net_output, log_probs=True
         ).contiguous()  # (T, B, C) from the decoder

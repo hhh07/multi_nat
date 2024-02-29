@@ -49,6 +49,18 @@ class NATCTCConfig(TranslationLevenshteinConfig):
         default="",
         metadata={"help": "dependency heads for encoder layers, split by comma"},
     )
+    enc_sman_attn_layers: str = field(
+        default="",
+        metadata={"help": "layers which use sman attn"},
+    )
+    sman_mode: int = field(
+        default=1,
+        metadata={"help": "sman mode: choose from [1, 2, 3, 4, 5] and [-1, -2, -3, -4, -5] and [0]"}
+    )
+    sman_width: float = field(
+        default=4.,
+        metadata={"help": "sman width: which != 0."}
+    )
 
 
 @register_task('nat_ctc_task', dataclass=NATCTCConfig)
