@@ -55,4 +55,4 @@ python train.py \
     --best-checkpoint-metric bleu --maximize-best-checkpoint-metric \
     --keep-last-epochs 1 \
     --keep-best-checkpoints 5 \
-    --enc-sman-attn-layers 0,1,2,3,4,5 --sman-mode 5  --sman-width 4 | tee -a ${log}
+    --enc-sman-attn-layers 0,1,2,3,4,5 --sman-mode 5  --sman-width 4 --sman-dropout 0.3 | tee -a ${log}

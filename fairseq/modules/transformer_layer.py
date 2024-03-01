@@ -71,12 +71,14 @@ class TransformerEncoderLayer(nn.Module):
         self.sman_linear = None
         self.sman_mode: int = 1
         self.sman_width: float = 4.
+        self.sman_drop: float = 0.
 
-    def add_sman_attn(self, cfg, sman_mode: int = 1, sman_width: float = 4.):
+    def add_sman_attn(self, cfg, sman_mode: int = 1, sman_width: float = 4. , sman_drop: float = 0.):
         self.sman_attn = self.build_self_attention(self.embed_dim, cfg)
         self.sman_attn_layer_norm = LayerNorm(self.embed_dim)
         self.sman_mode = sman_mode
         self.sman_width = sman_width
+        self.sman_drop = sman_drop
         if sman_mode in [4, 5, -4, -5]:  # 需要sman linear层时才初始化该参数
             self.sman_linear = quant_noise(
                 nn.Linear(2 * self.embed_dim, self.embed_dim),
@@ -272,6 +274,7 @@ class TransformerEncoderLayer(nn.Module):
         abs_diff = torch.abs(indices - indices.t())
         
         assert self.sman_width != 0, f"sman width值指定错误: {self.sman_width}"
+        assert self.sman_drop >=0 and self.sman_drop <=1,  f"sman drop值指定错误: {self.sman_drop}"
         if self.sman_width > 0.:
             width = self.sman_width
         elif self.sman_width < 0.:
@@ -280,6 +283,11 @@ class TransformerEncoderLayer(nn.Module):
 
         mask = (abs_diff <= width).float()
         mask = mask.unsqueeze(0).expand(batch, -1, -1)
+
+        if self.sman_drop != 0. :
+            sman_drop_mask = torch.bernoulli(torch.full((batch, seq_size, seq_size), self.sman_drop)).bool()
+            mask = torch.bitwise_xor(sman_drop_mask, mask.bool()).float()
+
 
         return mask
 

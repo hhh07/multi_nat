@@ -61,6 +61,14 @@ class NATCTCConfig(TranslationLevenshteinConfig):
         default=4.,
         metadata={"help": "sman width: which != 0."}
     )
+    sman_drop: float = field(
+        default=0.,
+        metadata={"help": "sman drop: which != 0."}
+    )
+    sman_dp: bool = field(
+        default=False,
+        metadata={"help": "use dp in sman_dp"}
+    )
 
 
 @register_task('nat_ctc_task', dataclass=NATCTCConfig)
