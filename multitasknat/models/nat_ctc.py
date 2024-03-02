@@ -343,6 +343,11 @@ class NAT_ctc_decoder(FairseqNATDecoder):
             )
         if not args.ctcdecoder_positional_embedding:
             self.embed_positions = None
+        #sman 是否建立sman的atten层
+        if args.dec_sman_attn_layers:
+            dec_sman_attn_layers = [int(i) for i in args.dec_sman_attn_layers.split(",") if (self.num_layers > int(i) >= 0)]
+            for i in set(dec_sman_attn_layers):
+                self.layers[i].add_sman_attn(args, sman_mode=args.sman_mode, sman_width=args.sman_width)
 
     def output_layer(self, features, **kwargs):
         """Project features to the vocabulary size."""

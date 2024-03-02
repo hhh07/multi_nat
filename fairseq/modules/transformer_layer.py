@@ -440,6 +440,23 @@ class TransformerDecoderLayer(nn.Module):
 
         self.onnx_trace = False
 
+        self.sman_attn = None
+        self.sman_attn_layer_norm = None
+        self.sman_linear = None
+        self.sman_mode: int = 1
+        self.sman_width: float = 4.
+
+    def add_sman_attn(self, cfg, sman_mode: int = 1, sman_width: float = 4.):
+        self.sman_attn = self.build_self_attention(self.embed_dim, cfg)
+        self.sman_attn_layer_norm = LayerNorm(self.embed_dim)
+        self.sman_mode = sman_mode
+        self.sman_width = sman_width
+        if sman_mode in [4, 5, -4, -5]:  # 需要sman linear层时才初始化该参数
+            self.sman_linear = quant_noise(
+                nn.Linear(2 * self.embed_dim, self.embed_dim),
+                p=self.quant_noise, block_size=self.quant_noise_block_size
+            )  # (2*C, C)
+
     def build_fc1(self, input_dim, output_dim, q_noise, qn_block_size):
         return quant_noise(nn.Linear(input_dim, output_dim), q_noise, qn_block_size)
 
@@ -478,6 +495,23 @@ class TransformerDecoderLayer(nn.Module):
     def residual_connection(self, x, residual):
         return residual + x
 
+    def _get_sman_mask(self, x):
+        seq_size, batch, embed_dim = x.shape
+        indices = torch.arange(seq_size).unsqueeze(1)
+        abs_diff = torch.abs(indices - indices.t())
+
+        assert self.sman_width != 0, f"sman width值指定错误: {self.sman_width}"
+        if self.sman_width > 0.:
+            width = self.sman_width
+        elif self.sman_width < 0.:
+            assert seq_size > 0, f"seq_size must >0, but now it is {seq_size}"
+            width = math.sqrt(seq_size) / math.fabs(self.sman_width)  # √(L) / |w|
+
+        mask = (abs_diff <= width).float()
+        mask = mask.unsqueeze(0).expand(batch, -1, -1)
+
+        return mask
+
     def forward(
         self,
         x,
@@ -506,6 +540,32 @@ class TransformerDecoderLayer(nn.Module):
         """
         if need_head_weights:
             need_attn = True
+
+        #add 下面的if都没有执行，直接在前面add sman
+
+        if self.sman_attn is not None:
+            sman_attn_mask = self._get_sman_mask(x)
+            sman_attn_mask_clone = sman_attn_mask.clone()
+            sman_attn_mask_clone += ((sman_attn_mask == 0) * 1e-9)
+
+            residual = x
+            if self.normalize_before:
+                x = self.sman_attn_layer_norm(x)
+            x, attention_weights = self.sman_attn(
+                query=x,
+                key=x,
+                value=x,
+                key_padding_mask=self_attn_padding_mask,
+                incremental_state=incremental_state,
+                need_weights=False,
+                attn_mask=self_attn_mask,
+                sman_attn_mask=sman_attn_mask_clone,
+            )
+            x = self.dropout_module(x)
+            x = self.residual_connection(x, residual)
+            if not self.normalize_before:
+                x = self.sman_attn_layer_norm(x)
+
 
         residual = x
         if self.normalize_before:
@@ -545,6 +605,7 @@ class TransformerDecoderLayer(nn.Module):
         else:
             y = x
 
+        # sa
         x, attn = self.self_attn(
             query=x,
             key=y,

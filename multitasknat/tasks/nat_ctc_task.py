@@ -51,7 +51,11 @@ class NATCTCConfig(TranslationLevenshteinConfig):
     )
     enc_sman_attn_layers: str = field(
         default="",
-        metadata={"help": "layers which use sman attn"},
+        metadata={"help": "encoder layers which use sman attn"},
+    )
+    dec_sman_attn_layers: str = field(
+        default="",
+        metadata={"help": "decoder layers which use sman attn"},
     )
     sman_mode: int = field(
         default=1,
