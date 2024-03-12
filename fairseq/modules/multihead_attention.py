@@ -368,8 +368,11 @@ class MultiheadAttention(nn.Module):
             attn_weights = attn_weights.view(bsz * self.num_heads, tgt_len, src_len)
 
         if sman_attn_mask is not None:
-            multi_head_dp_attn_mask = torch.cat([sman_attn_mask] * self.num_heads, dim=0).float().to(attn_weights.device)
-            attn_weights *= multi_head_dp_attn_mask
+            # multi_head_dp_attn_mask = torch.cat([sman_attn_mask] * self.num_heads, dim=0).float().to(attn_weights.device)
+            # attn_weights *= multi_head_dp_attn_mask
+            multi_head_dp_attn_mask = torch.cat([sman_attn_mask] * self.num_heads, dim=0).bool().to(attn_weights.device)
+            attn_weights = attn_weights.masked_fill(~multi_head_dp_attn_mask, -1e4)
+            # attn_weights[~multi_head_dp_attn_mask] = float("-inf")
 
         if before_softmax:
             return attn_weights, v

@@ -154,8 +154,8 @@ class TransformerEncoderLayer(nn.Module):
 
         if self.sman_attn is not None:
             sman_attn_mask = self._get_sman_mask(x)
-            sman_attn_mask_clone = sman_attn_mask.clone()
-            sman_attn_mask_clone += ((sman_attn_mask == 0) * 1e-9)
+            # sman_attn_mask_clone = sman_attn_mask.clone()
+            # sman_attn_mask_clone += ((sman_attn_mask == 0) * 1e-9)
 
             residual = x
             if self.normalize_before:
@@ -167,7 +167,7 @@ class TransformerEncoderLayer(nn.Module):
                 key_padding_mask=encoder_padding_mask,
                 need_weights=False,
                 attn_mask=attn_mask,
-                sman_attn_mask=sman_attn_mask_clone,
+                sman_attn_mask=sman_attn_mask,
             )
             x = self.dropout_module(x)
             x = self.residual_connection(x, residual)
@@ -327,8 +327,8 @@ class TransformerEncoderLayer(nn.Module):
 
     def _sman(self, x, encoder_padding_mask, attn_mask):
         sman_attn_mask = self._get_sman_mask(x)
-        sman_attn_mask_clone = sman_attn_mask.clone()
-        sman_attn_mask_clone += ((sman_attn_mask == 0) * 1e-9)
+        # sman_attn_mask_clone = sman_attn_mask.clone()
+        # sman_attn_mask_clone += ((sman_attn_mask == 0) * 1e-9)
 
         residual = x
         if self.normalize_before:
@@ -340,7 +340,7 @@ class TransformerEncoderLayer(nn.Module):
             key_padding_mask=encoder_padding_mask,
             need_weights=False,
             attn_mask=attn_mask,
-            sman_attn_mask=sman_attn_mask_clone,
+            sman_attn_mask=sman_attn_mask,
         )
         x = self.dropout_module(x)
         x = self.residual_connection(x, residual)
@@ -545,8 +545,8 @@ class TransformerDecoderLayer(nn.Module):
 
         if self.sman_attn is not None:
             sman_attn_mask = self._get_sman_mask(x)
-            sman_attn_mask_clone = sman_attn_mask.clone()
-            sman_attn_mask_clone += ((sman_attn_mask == 0) * 1e-9)
+            # sman_attn_mask_clone = sman_attn_mask.clone()
+            # sman_attn_mask_clone += ((sman_attn_mask == 0) * 1e-9)
 
             residual = x
             if self.normalize_before:
@@ -559,7 +559,7 @@ class TransformerDecoderLayer(nn.Module):
                 incremental_state=incremental_state,
                 need_weights=False,
                 attn_mask=self_attn_mask,
-                sman_attn_mask=sman_attn_mask_clone,
+                sman_attn_mask=sman_attn_mask,
             )
             x = self.dropout_module(x)
             x = self.residual_connection(x, residual)
