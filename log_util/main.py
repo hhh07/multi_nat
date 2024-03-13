@@ -128,7 +128,7 @@ def parse_multi_log(log_dir_path_list_str:str, args):
     # 自动调整子图布局，避免重叠
     plt.tight_layout()
     # 保存图片
-    png_save_dir = f"log_{int(time.time())}.png"
+    png_save_dir = f"log.png"
     print(png_save_dir)
     plt.savefig(png_save_dir)
 

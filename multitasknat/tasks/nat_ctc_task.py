@@ -73,6 +73,11 @@ class NATCTCConfig(TranslationLevenshteinConfig):
         default=False,
         metadata={"help": "use dp in sman_dp"}
     )
+    sman_dynamic: bool = field(
+        default=False,
+        metadata={"help": "use dynamic dman"}
+    )
+
 
 
 @register_task('nat_ctc_task', dataclass=NATCTCConfig)

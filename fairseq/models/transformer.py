@@ -403,6 +403,12 @@ class TransformerEncoder(FairseqEncoder):
             self.layer_norm = LayerNorm(embed_dim)
         else:
             self.layer_norm = None
+        # sman 是否建立sman的atten层
+        if args.enc_sman_attn_layers:
+            enc_sman_attn_layers = [int(i) for i in args.enc_sman_attn_layers.split(",") if (self.num_layers > int(i) >= 0)]
+            for i in set(enc_sman_attn_layers):
+                self.layers[i].add_sman_attn(args, sman_mode=args.sman_mode, sman_width=args.sman_width, sman_drop=args.sman_drop, sman_dynamic=args.sman_dynamic)
+
 
     def build_encoder_layer(self, args):
         layer = TransformerEncoderLayer(args)

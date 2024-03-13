@@ -296,6 +296,35 @@ class TranslationConfig(FairseqDataclass):
     dep_dist_calc_variance: float = field(
         default=1.0, metadata={"help": "sigma in dep dist calculation"}
     )
+    enc_sman_attn_layers: str = field(
+        default="",
+        metadata={"help": "encoder layers which use sman attn"},
+    )
+    dec_sman_attn_layers: str = field(
+        default="",
+        metadata={"help": "decoder layers which use sman attn"},
+    )
+    sman_mode: int = field(
+        default=1,
+        metadata={"help": "sman mode: choose from [1, 2, 3, 4, 5] and [-1, -2, -3, -4, -5] and [0]"}
+    )
+    sman_width: float = field(
+        default=4.,
+        metadata={"help": "sman width: which != 0."}
+    )
+    sman_drop: float = field(
+        default=0.,
+        metadata={"help": "sman drop: which != 0."}
+    )
+    sman_dp: bool = field(
+        default=False,
+        metadata={"help": "use dp in sman_dp"}
+    )
+    sman_dynamic: bool = field(
+        default=False,
+        metadata={"help": "use dynamic dman"}
+    )
+
 
 
 
@@ -414,7 +443,7 @@ class TranslationTask(FairseqTask):
             )
         return model
 
-    def valid_step(self, sample, model, criterion):
+    def valid_step(self, sample, model, criterion, **kwargs):
         loss, sample_size, logging_output = super().valid_step(sample, model, criterion)
         if self.cfg.eval_bleu:
             bleu = self._inference_with_bleu(self.sequence_generator, sample, model)

@@ -38,6 +38,8 @@ class MultiheadAttention(nn.Module):
         encoder_decoder_attention=False,
         q_noise=0.0,
         qn_block_size=8,
+        re_weight_m=0,
+        max_len=1024,
     ):
         super().__init__()
         self.embed_dim = embed_dim
@@ -85,6 +87,20 @@ class MultiheadAttention(nn.Module):
 
         self.add_zero_attn = add_zero_attn
 
+        """ re-weight the score of attention matrix"""
+        assert isinstance(re_weight_m, int) and re_weight_m >= 0
+        self.re_weight_m = re_weight_m
+        #hzj
+        #初始化可学习参数
+        if self.re_weight_m == 1:
+            self.forward_position_x = Parameter(torch.Tensor(max_len))
+            self.backward_position_x = Parameter(torch.Tensor(max_len))
+            self.head_x = Parameter(torch.Tensor(self.num_heads))
+            self.context_x_fc = nn.Linear(self.embed_dim, 1, False)
+        else:
+            self.forward_position_x = self.backward_position_x = self.head_x = self.context_x_fc = None
+
+
         self.reset_parameters()
 
         self.onnx_trace = False
@@ -111,6 +127,60 @@ class MultiheadAttention(nn.Module):
             nn.init.xavier_normal_(self.bias_k)
         if self.bias_v is not None:
             nn.init.xavier_normal_(self.bias_v)
+        if self.forward_position_x is not None:
+            nn.init.normal_(self.forward_position_x)
+        if self.backward_position_x is not None:
+            nn.init.normal_(self.backward_position_x)
+        if self.head_x is not None:
+            nn.init.normal_(self.head_x)
+        if self.context_x_fc is not None:
+            nn.init.xavier_uniform_(self.context_x_fc.weight)
+            # nn.init.constant_(self.context_x.bias, 0.)
+
+    
+    def build_mask(self, **kw):
+        #hzj
+        if self.re_weight_m == 1:
+
+            assert 'context' in kw and 'key_len' in kw and 'bsz' in kw
+            context, key_len, bsz = kw['context'], kw['key_len'], kw['bsz']
+
+            if context.size(0) != bsz:
+                assert context.size(1) == bsz
+                context = context.transpose(0, 1)
+
+            """ position based -- gamma"""
+            forward_x = self.forward_position_x
+            backward_x = self.backward_position_x
+            self_x = torch.zeros(1).type_as(backward_x)
+            position_x = torch.cat([forward_x, self_x, backward_x], 0)
+
+            max_x_len = position_x.size(-1)
+            half_max_x_len = (max_x_len + 1) // 2
+
+            indices = torch.arange(key_len).unsqueeze(0).repeat(key_len, 1). \
+                add(torch.arange(half_max_x_len - key_len, half_max_x_len).flip([0]).unsqueeze(1)). \
+                view(-1).long().cuda()
+            position_x = position_x.view(-1)[indices].view(key_len, key_len)
+
+            """ head based -- gamma"""
+            head_x = self.head_x
+
+            """position and head based -- gamma
+              gamma num_heads * key_len * key_len"""
+            x = position_x.unsqueeze(0).repeat(self.num_heads, 1, 1). \
+                add(head_x.unsqueeze(-1).unsqueeze(-1))
+
+            """ context weight based -- x"""
+            context_x = self.context_x_fc(context).unsqueeze(1)
+
+            #log_weights = context_x.add(x.unsqueeze(0).repeat(bsz, 1, 1, 1)).sigmoid().clamp(1e-10).log()
+            log_weights = context_x.add(x.unsqueeze(0).repeat(bsz, 1, 1, 1)).sigmoid().clamp(1e-5).log()
+
+            if key_len == context.size(1):
+                return log_weights
+            else:
+                return log_weights[:, :, -1].unsqueeze(2)
 
     def forward(
         self,
@@ -165,6 +235,7 @@ class MultiheadAttention(nn.Module):
             and not torch.jit.is_scripting()
             and dep_dist is  None
             and sman_attn_mask is None
+            and self.re_weight_m == 0
 
         ):
             assert key is not None and value is not None
@@ -352,6 +423,14 @@ class MultiheadAttention(nn.Module):
             if self.onnx_trace:
                 attn_mask = attn_mask.repeat(attn_weights.size(0), 1, 1)
             attn_weights += attn_mask
+
+        if self.re_weight_m == 1:
+            attn_weights = attn_weights.view(bsz, self.num_heads, tgt_len, src_len)
+            log_weights = self.build_mask(context=query, key_len=src_len, bsz=bsz)
+            attn_weights += log_weights
+            attn_weights = attn_weights.view(bsz * self.num_heads, tgt_len, src_len)
+
+                
 
         if key_padding_mask is not None:
             # don't attend to padding symbols

@@ -72,18 +72,34 @@ class TransformerEncoderLayer(nn.Module):
         self.sman_mode: int = 1
         self.sman_width: float = 4.
         self.sman_drop: float = 0.
+        self.sman_dynamic: bool = False
 
-    def add_sman_attn(self, cfg, sman_mode: int = 1, sman_width: float = 4. , sman_drop: float = 0.):
-        self.sman_attn = self.build_self_attention(self.embed_dim, cfg)
-        self.sman_attn_layer_norm = LayerNorm(self.embed_dim)
-        self.sman_mode = sman_mode
-        self.sman_width = sman_width
-        self.sman_drop = sman_drop
-        if sman_mode in [4, 5, -4, -5]:  # 需要sman linear层时才初始化该参数
-            self.sman_linear = quant_noise(
-                nn.Linear(2 * self.embed_dim, self.embed_dim),
-                p=self.quant_noise, block_size=self.quant_noise_block_size
-            )  # (2*C, C)
+    def add_sman_attn(self, cfg, sman_mode: int = 1, sman_width: float = 4. , sman_drop: float = 0. , sman_dynamic: bool = False):
+        if sman_dynamic :
+            #dman
+            self.sman_attn = self.build_dman_self_attention(self.embed_dim, cfg)
+            self.sman_attn_layer_norm = LayerNorm(self.embed_dim)
+            self.sman_mode = sman_mode
+            self.sman_width = sman_width
+            self.sman_drop = sman_drop
+            self.sman_dynamic = sman_dynamic
+            if sman_mode in [4, 5, -4, -5]:  # 需要sman linear层时才初始化该参数
+                self.sman_linear = quant_noise(
+                    nn.Linear(2 * self.embed_dim, self.embed_dim),
+                    p=self.quant_noise, block_size=self.quant_noise_block_size
+                )  # (2*C, C)
+        else:
+            #sman
+            self.sman_attn = self.build_self_attention(self.embed_dim, cfg)
+            self.sman_attn_layer_norm = LayerNorm(self.embed_dim)
+            self.sman_mode = sman_mode
+            self.sman_width = sman_width
+            self.sman_drop = sman_drop
+            if sman_mode in [4, 5, -4, -5]:  # 需要sman linear层时才初始化该参数
+                self.sman_linear = quant_noise(
+                    nn.Linear(2 * self.embed_dim, self.embed_dim),
+                    p=self.quant_noise, block_size=self.quant_noise_block_size
+                )  # (2*C, C)
 
     def build_fc1(self, input_dim, output_dim, q_noise, qn_block_size):
         return quant_noise(
@@ -103,6 +119,18 @@ class TransformerEncoderLayer(nn.Module):
             self_attention=True,
             q_noise=self.quant_noise,
             qn_block_size=self.quant_noise_block_size,
+        )
+    
+    def build_dman_self_attention(self, embed_dim, args):
+        return MultiheadAttention(
+            embed_dim,
+            args.encoder_attention_heads,
+            dropout=args.attention_dropout,
+            self_attention=True,
+            q_noise=self.quant_noise,
+            qn_block_size=self.quant_noise_block_size,
+            re_weight_m=1,
+            max_len=1024,
         )
 
     def residual_connection(self, x, residual):
@@ -326,27 +354,46 @@ class TransformerEncoderLayer(nn.Module):
         return x
 
     def _sman(self, x, encoder_padding_mask, attn_mask):
-        sman_attn_mask = self._get_sman_mask(x)
-        # sman_attn_mask_clone = sman_attn_mask.clone()
-        # sman_attn_mask_clone += ((sman_attn_mask == 0) * 1e-9)
+        if self.sman_dynamic:
+            residual = x
+            if self.normalize_before:
+                x = self.sman_attn_layer_norm(x)
+            x, attention_weights = self.sman_attn(
+                query=x,
+                key=x,
+                value=x,
+                key_padding_mask=encoder_padding_mask,
+                need_weights=False,
+                attn_mask=attn_mask,
+            )
+            x = self.dropout_module(x)
+            x = self.residual_connection(x, residual)
+            if not self.normalize_before:
+                x = self.sman_attn_layer_norm(x)
+            return x
 
-        residual = x
-        if self.normalize_before:
-            x = self.sman_attn_layer_norm(x)
-        x, attention_weights = self.sman_attn(
-            query=x,
-            key=x,
-            value=x,
-            key_padding_mask=encoder_padding_mask,
-            need_weights=False,
-            attn_mask=attn_mask,
-            sman_attn_mask=sman_attn_mask,
-        )
-        x = self.dropout_module(x)
-        x = self.residual_connection(x, residual)
-        if not self.normalize_before:
-            x = self.sman_attn_layer_norm(x)
-        return x
+        else:
+            sman_attn_mask = self._get_sman_mask(x)
+            # sman_attn_mask_clone = sman_attn_mask.clone()
+            # sman_attn_mask_clone += ((sman_attn_mask == 0) * 1e-9)
+
+            residual = x
+            if self.normalize_before:
+                x = self.sman_attn_layer_norm(x)
+            x, attention_weights = self.sman_attn(
+                query=x,
+                key=x,
+                value=x,
+                key_padding_mask=encoder_padding_mask,
+                need_weights=False,
+                attn_mask=attn_mask,
+                sman_attn_mask=sman_attn_mask,
+            )
+            x = self.dropout_module(x)
+            x = self.residual_connection(x, residual)
+            if not self.normalize_before:
+                x = self.sman_attn_layer_norm(x)
+            return x
 
     def _sman_ll(self, x1, x2):
         """
