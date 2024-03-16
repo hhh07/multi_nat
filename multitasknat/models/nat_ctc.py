@@ -272,11 +272,12 @@ class NAT_ctc_encoder(FairseqNATEncoder):
         if len(self.enc_dep_heads_list) < args.encoder_layers:
             self.enc_dep_heads_list.extend([0] * (args.encoder_layers - len(self.enc_dep_heads_list)))
         # sman 是否建立sman的atten层
-        if args.enc_sman_attn_layers:
+        if hasattr(args, 'enc_sman_attn_layers') and args.enc_sman_attn_layers:
             enc_sman_attn_layers = [int(i) for i in args.enc_sman_attn_layers.split(",") if (self.num_layers > int(i) >= 0)]
             for i in set(enc_sman_attn_layers):
                 self.layers[i].add_sman_attn(args, sman_mode=args.sman_mode, sman_width=args.sman_width, sman_drop=args.sman_drop, sman_dynamic=args.sman_dynamic)
-        self.sman_binary_dp = args.sman_binary_dp
+        if hasattr(args, 'sman_binary_dp'):
+            self.sman_binary_dp = args.sman_binary_dp
 
     def forward(self, src_tokens, src_lengths, token_embeddings: Optional[torch.Tensor] = None, **kwargs):
         # compute padding mask
@@ -292,13 +293,19 @@ class NAT_ctc_encoder(FairseqNATEncoder):
         # B x T x C -> T x B x C
         x = x.transpose(0, 1)
 
+        if hasattr(self, 'sman_binary_dp'):
+            sman_binary_dp = self.sman_binary_dp
+        else:
+            sman_binary_dp = False
+
+
         # encoder layers
         for i, layer in enumerate(self.layers):
             x = layer(
                 x, encoder_padding_mask=encoder_padding_mask if has_pads else None,
                 dep_dist_drop=self.dep_dist_drop,
                 dep_heads=self.enc_dep_heads_list[i],
-                sman_binary_dp = self.sman_binary_dp,
+                sman_binary_dp = sman_binary_dp,
                 **kwargs
             )
 
@@ -351,7 +358,7 @@ class NAT_ctc_decoder(FairseqNATDecoder):
         if not args.ctcdecoder_positional_embedding:
             self.embed_positions = None
         #sman 是否建立sman的atten层
-        if args.dec_sman_attn_layers:
+        if hasattr(args, 'dec_sman_attn_layers') and args.dec_sman_attn_layers:
             dec_sman_attn_layers = [int(i) for i in args.dec_sman_attn_layers.split(",") if (self.num_layers > int(i) >= 0)]
             for i in set(dec_sman_attn_layers):
                 self.layers[i].add_sman_attn(args, sman_mode=args.sman_mode, sman_width=args.sman_width)

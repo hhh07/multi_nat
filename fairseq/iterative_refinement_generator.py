@@ -134,11 +134,11 @@ class IterativeRefinementGenerator(object):
         bsz, src_len = src_tokens.size()
 
         # initialize
-        # if sample["net_input"].has_key("src_dep_dist"):
-        #     encoder_out = model.forward_encoder([src_tokens, src_lengths], src_dep_dist = sample["net_input"]["src_dep_dist"])
-        # else:
-        #     encoder_out = model.forward_encoder([src_tokens, src_lengths])
-        encoder_out = model.forward_encoder([src_tokens, src_lengths])
+        if sample["net_input"].get("src_dep_dist") is not None:
+            encoder_out = model.forward_encoder([src_tokens, src_lengths], src_dep_dist = sample["net_input"]["src_dep_dist"])
+        else:
+            encoder_out = model.forward_encoder([src_tokens, src_lengths])
+        #encoder_out = model.forward_encoder([src_tokens, src_lengths])
         #encoder_out = model.forward_encoder([src_tokens, src_lengths], src_dep_dist = sample["net_input"]["src_dep_dist"])
         prev_decoder_out = model.initialize_output_tokens(encoder_out, src_tokens)
 

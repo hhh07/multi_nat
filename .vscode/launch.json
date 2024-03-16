@@ -9,13 +9,13 @@
             "name": "Python: test",
             "type": "python",
             "request": "launch",
-            "program": "/mnt/sda1_hd/huzhoujue/multi_nat/generate.py",
-            "cwd": "/mnt/sda1_hd/huzhoujue/multi_nat",
+            "program": "/sda/huzhoujue/NMT/MultiTaskNAT/generate.py",
+            "cwd": "/sda/huzhoujue/NMT/MultiTaskNAT",
             "console": "integratedTerminal",
             "justMyCode": false,
-            "env": {"CUDA_VISIBLE_DEVICES":"0"},
+            "env": {"CUDA_VISIBLE_DEVICES":"1"},
             "args": [
-                "data-bin/distill_iwslt14.tokenized.de-en","--path","/mnt/sda1_hd/huzhoujue/multi_nat/model/sman-enhance/checkpoint_best.pt","--user-dir","multitasknat","--task","nat_ctc_task","--max-sentences","50","--source-lang","de","--target-lang","en","--remove-bpe","--iter-decode-max-iter","0","--iter-decode-eos-penalty","0","--beam","1","--gen-subset","valid"
+                "data-bin/distill_iwslt14.tokenized.de-en","--path","/sda/huzhoujue/NMT/MultiTaskNAT/model/sman-enhance/checkpoint_best.pt","--user-dir","multitasknat","--task","nat_ctc_task","--max-sentences","50","--source-lang","de","--target-lang","en","--remove-bpe","--iter-decode-max-iter","0","--iter-decode-eos-penalty","0","--beam","1","--gen-subset","valid", "--load-dependency"
             ],
         }
     ]
