@@ -175,6 +175,11 @@ class NAT_ctc_model(FairseqNATModel):
 
         return beam_results, beam_scores
 
+#inference问题
+    def forward_encoder(self, encoder_inputs, **kwargs):
+
+        return self.encoder(*encoder_inputs, **kwargs)
+    
     def forward_decoder(self, decoder_out, encoder_out, **kwargs):
         # 包含了upsample_x和upsample_mask
         history = decoder_out.history
@@ -271,6 +276,7 @@ class NAT_ctc_encoder(FairseqNATEncoder):
             enc_sman_attn_layers = [int(i) for i in args.enc_sman_attn_layers.split(",") if (self.num_layers > int(i) >= 0)]
             for i in set(enc_sman_attn_layers):
                 self.layers[i].add_sman_attn(args, sman_mode=args.sman_mode, sman_width=args.sman_width, sman_drop=args.sman_drop, sman_dynamic=args.sman_dynamic)
+        self.sman_binary_dp = args.sman_binary_dp
 
     def forward(self, src_tokens, src_lengths, token_embeddings: Optional[torch.Tensor] = None, **kwargs):
         # compute padding mask
@@ -292,6 +298,7 @@ class NAT_ctc_encoder(FairseqNATEncoder):
                 x, encoder_padding_mask=encoder_padding_mask if has_pads else None,
                 dep_dist_drop=self.dep_dist_drop,
                 dep_heads=self.enc_dep_heads_list[i],
+                sman_binary_dp = self.sman_binary_dp,
                 **kwargs
             )
 

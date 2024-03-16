@@ -69,9 +69,9 @@ class NATCTCConfig(TranslationLevenshteinConfig):
         default=0.,
         metadata={"help": "sman drop: which != 0."}
     )
-    sman_dp: bool = field(
+    sman_binary_dp: bool = field(
         default=False,
-        metadata={"help": "use dp in sman_dp"}
+        metadata={"help": "add dp binary in sman mask"}
     )
     sman_dynamic: bool = field(
         default=False,
@@ -154,6 +154,8 @@ class NATCTC_Task(TranslationLevenshteinTask):
             loss, sample_size, logging_output = criterion(model, sample)
             # 以下为后来添加
             if self.cfg.eval_bleu:
+                #为什么这里还要执行一次
+                #inference_step
                 bleu = self._inference_with_bleu(self.sequence_generator, sample, model)
                 logging_output["_bleu_sys_len"] = bleu.sys_len
                 logging_output["_bleu_ref_len"] = bleu.ref_len

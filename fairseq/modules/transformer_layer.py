@@ -12,6 +12,8 @@ from fairseq.modules import LayerNorm, MultiheadAttention
 from fairseq.modules.fairseq_dropout import FairseqDropout
 from fairseq.modules.quant_noise import quant_noise
 from torch import Tensor
+import logging
+logger = logging.getLogger(__name__)
 
 
 class TransformerEncoderLayer(nn.Module):
@@ -153,6 +155,7 @@ class TransformerEncoderLayer(nn.Module):
     def forward(self, x, encoder_padding_mask: Optional[Tensor], attn_mask: Optional[Tensor] = None,
                 dep_dist_drop: float=0.0,
                 dep_heads: int=0,
+                sman_binary_dp: bool=False,
                 **kwargs):
         """
         Args:
@@ -178,7 +181,7 @@ class TransformerEncoderLayer(nn.Module):
             attn_mask = attn_mask.masked_fill(attn_mask.to(torch.bool), -1e8)
 
         if self.sman_attn is not None:
-            return self.forward_sman(x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, **kwargs)
+            return self.forward_sman(x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, sman_binary_dp, **kwargs)
 
         if self.sman_attn is not None:
             sman_attn_mask = self._get_sman_mask(x)
@@ -236,7 +239,7 @@ class TransformerEncoderLayer(nn.Module):
 
     # 【所有相关代码均尚未调试过！！！】
     def forward_sman(self, x, encoder_padding_mask: Optional[Tensor], attn_mask: Optional[Tensor] = None,
-                 dep_dist_drop: float = 0.0, dep_heads: int = 0, **kwargs):
+                 dep_dist_drop: float = 0.0, dep_heads: int = 0, sman_binary_dp: bool = False,  **kwargs):
         if attn_mask is not None:
             attn_mask = attn_mask.masked_fill(attn_mask.to(torch.bool), -1e8)
 
@@ -246,28 +249,28 @@ class TransformerEncoderLayer(nn.Module):
             
         else:
             if self.sman_mode == 0:  # 替换SA: SMAN -> FFN
-                x = self._sman(x, encoder_padding_mask, attn_mask)
+                x = self._sman(x, encoder_padding_mask, attn_mask, sman_binary_dp, **kwargs)
                 x = self._ffn(x)
 
             elif self.sman_mode == 1:  # SMAN -> SA -> FFN (默认sman mode)
-                x = self._sman(x, encoder_padding_mask, attn_mask)
+                x = self._sman(x, encoder_padding_mask, attn_mask, sman_binary_dp, **kwargs)
                 x = self._sa(x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, **kwargs)
                 x = self._ffn(x)
             elif self.sman_mode == 2:  # SA -> SMAN -> FFN
                 x = self._sa(x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, **kwargs)
-                x = self._sman(x, encoder_padding_mask, attn_mask)
+                x = self._sman(x, encoder_padding_mask, attn_mask, sman_binary_dp, **kwargs)
                 x = self._ffn(x)
             elif self.sman_mode == 3:  # SA -> FFN -> SMAN
                 x = self._sa(x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, **kwargs)
                 x = self._ffn(x)
-                x = self._sman(x, encoder_padding_mask, attn_mask)
+                x = self._sman(x, encoder_padding_mask, attn_mask, sman_binary_dp, **kwargs)
             elif self.sman_mode == 4:  # [SMAN; SA -> FFN]
-                x1 = self._sman(x, encoder_padding_mask, attn_mask)
+                x1 = self._sman(x, encoder_padding_mask, attn_mask, sman_binary_dp, **kwargs)
                 x2 = self._sa(x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, **kwargs)
                 x2 = self._ffn(x2)
                 x = self._sman_ll(x1, x2)
             elif self.sman_mode == 5:  # [SMAN; SA] -> FFN
-                x1 = self._sman(x, encoder_padding_mask, attn_mask)
+                x1 = self._sman(x, encoder_padding_mask, attn_mask, sman_binary_dp, **kwargs)
                 x2 = self._sa(x, encoder_padding_mask, attn_mask, dep_dist_drop, dep_heads, **kwargs)
                 x = self._sman_ll(x1, x2)
                 x = self._ffn(x)
@@ -353,7 +356,8 @@ class TransformerEncoderLayer(nn.Module):
             x = self.final_layer_norm(x)
         return x
 
-    def _sman(self, x, encoder_padding_mask, attn_mask):
+    def _sman(self, x, encoder_padding_mask, attn_mask, sman_binary_dp, **kwargs):
+    #def _sman(self, x, encoder_padding_mask, attn_mask, **kwargs):
         if self.sman_dynamic:
             residual = x
             if self.normalize_before:
@@ -376,6 +380,15 @@ class TransformerEncoderLayer(nn.Module):
             sman_attn_mask = self._get_sman_mask(x)
             # sman_attn_mask_clone = sman_attn_mask.clone()
             # sman_attn_mask_clone += ((sman_attn_mask == 0) * 1e-9)
+            if sman_binary_dp:
+                dep_dist=kwargs["src_dep_dist"] if "src_dep_dist" in kwargs.keys() else None
+                if dep_dist is not None:
+                    sman_attn_mask_clone = sman_attn_mask.clone()
+                    sman_attn_mask = sman_attn_mask_clone.bool() | dep_dist.to(sman_attn_mask.device).bool()
+                    sman_attn_mask = sman_attn_mask.float()
+                #inference问题
+                else:
+                    logger.warn("dep_dist is None!!!!!!")
 
             residual = x
             if self.normalize_before:
